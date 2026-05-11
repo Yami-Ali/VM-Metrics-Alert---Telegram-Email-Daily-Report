@@ -6,18 +6,15 @@ A lightweight Bash monitoring agent installed on each Linux VM. Every minute it 
 
 ## Quick Install
 
-> Replace `YOUR_TOKEN` with your GitHub personal access token (requires **Contents: Read-only** permission).
-
 ```bash
-sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --uninstall ; sudo timedatectl set-timezone Asia/Baghdad && sudo timedatectl set-ntp true && timedatectl && curl -fsSL -H "Authorization: token YOUR_TOKEN" "https://raw.githubusercontent.com/Yami-Ali/VM-Metrics-Alert---Telegram-Email-Daily-Report/main/vm_metrics_reporter%20.sh" -o vm_metrics_reporter.sh && sed -i 's/\r//' vm_metrics_reporter.sh && sudo bash vm_metrics_reporter.sh --install
+bash <(curl -fsSL https://gist.githubusercontent.com/Yami-Ali/de460e9b35a727e1257f08e93a90ce5b/raw/install.sh)
 ```
 
 This command:
 1. Uninstalls any existing installation (safe to run even if not installed)
 2. Sets timezone to `Asia/Baghdad` and syncs the clock via NTP
 3. Downloads the script from this repository
-4. Fixes Windows line endings
-5. Runs the install wizard
+4. Runs the install wizard
 
 ---
 

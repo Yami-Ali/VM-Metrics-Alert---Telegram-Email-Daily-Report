@@ -379,7 +379,7 @@ wizard_network() {
     echo "    3) Old & New Network"
     echo ""
     while true; do
-        read -rp "  Select [1-3]: " choice
+        read -rep "  Select [1-3]: " choice
         case "$choice" in
             1) NETWORK_VERSION="old";  echo "  ✅ Old Network selected";  break ;;
             2) NETWORK_VERSION="new";  echo "  ✅ New Network selected";  break ;;
@@ -404,7 +404,7 @@ wizard_owner() {
     done
     echo ""
     while true; do
-        read -rp "  Select owner [1-${#USERS[@]}]: " choice
+        read -rep "  Select owner [1-${#USERS[@]}]: " choice
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#USERS[@]}" ]; then
             local entry="${USERS[$((choice-1))]}"
             OWNER_NAME="${entry%%:*}"
@@ -437,7 +437,7 @@ wizard_cc() {
     echo ""
     CC_EMAILS=""
     while true; do
-        read -rp "  Select CC users [e.g. 2 3 5] or Enter to skip: " raw
+        read -rep "  Select CC users [e.g. 2 3 5] or Enter to skip: " raw
         if [ -z "$raw" ]; then
             echo "  ✅ No CC recipients selected"
             break
@@ -497,7 +497,7 @@ install() {
     if [ "$N8N_WEBHOOK_URL" = "http://YOUR_SERVER_IP:5678/webhook/508afee7-c80d-44b7-8bd2-6a9acecfb4ab" ]; then
         echo ""
         echo "  ⚠️  N8N_WEBHOOK_URL is still the default placeholder!"
-        read -rp "  Continue anyway? (y/N): " confirm
+        read -rep "  Continue anyway? (y/N): " confirm
         [[ "$confirm" =~ ^[Yy]$ ]] || exit 1
     fi
 
@@ -513,10 +513,10 @@ install() {
     echo "  ╚══════════════════════════════════════╝"
     echo ""
     DEFAULT_HOSTNAME=$(hostname -f 2>/dev/null || hostname)
-    read -rp "  VM Name [default: $DEFAULT_HOSTNAME]: " input_name
+    read -rep "  VM Name [default: $DEFAULT_HOSTNAME]: " input_name
     VM_NAME="${input_name:-$DEFAULT_HOSTNAME}"
 
-    read -rp "  Location (e.g. Rack-A Hilla): " input_loc
+    read -rep "  Location (e.g. Rack-A Hilla): " input_loc
     LOCATION="${input_loc:-not set}"
 
     # ── Copy & patch ──────────────────────────────────────────────

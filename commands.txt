@@ -1,0 +1,44 @@
+**1. Install**
+sudo bash vm_metrics_reporter.sh --install
+
+**2. Check status (config + live snapshot + last alert times)**
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --status
+
+**3. Test — simulate alerts with fake data**
+# Disk 85% + RAM 75% → WARNING → Email only
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --simulate 85 75
+
+# Disk 92% + RAM 50% → CRITICAL → Telegram + Email
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --simulate 92 50
+
+# Disk 65% only → INFO → Email only
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --simulate 65 50
+
+# Nothing sent (both below thresholds)
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --simulate 50 50
+```
+
+**4. Send real metrics immediately (ignores timer)**
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --force
+
+**5. Watch live log (see cron firing every minute)**
+tail -f /var/log/vm_metrics_reporter.log
+
+**6. Check cron is active**
+cat /etc/cron.d/vm_metrics_reporter
+
+**7. Check state/timer files (what timestamps were last sent)**
+ls -la /opt/vm-metrics/state/
+cat /opt/vm-metrics/state/*
+
+**8. Uninstall everything**
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --uninstall
+
+# Daily بديسك وRAM طبيعيين (تحت الثريشهولد) — is_daily=true
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --simulate-daily
+
+# Daily بديسك عالي — is_daily=true
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --simulate-daily 85 70
+
+# Daily بـ CRITICAL — is_daily=true
+sudo bash /opt/vm-metrics/vm_metrics_reporter.sh --simulate-daily 92 50

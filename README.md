@@ -20,9 +20,8 @@ bash <(curl -fsSL https://gist.githubusercontent.com/Yami-Ali/de460e9b35a727e125
 
 This command:
 1. Uninstalls any existing installation (safe to re-run)
-2. Sets timezone to `Asia/Baghdad` and syncs clock via NTP
-3. Downloads the script from this repository
-4. Runs the install wizard
+2. Downloads the script from this repository
+3. Runs the install wizard
 
 ---
 

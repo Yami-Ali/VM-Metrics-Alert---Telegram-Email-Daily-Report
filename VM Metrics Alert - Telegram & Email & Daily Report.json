@@ -7,13 +7,13 @@
         "path": "508afee7-c80d-44b7-8bd2-6a9acecfb4ab",
         "options": {}
       },
-      "id": "5f2f7d14-53e4-43a7-b747-20004e04e4bc",
+      "id": "7930b1b4-47e6-4247-bf7f-d765f164f1c5",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        1344,
-        1264
+        1152,
+        912
       ],
       "webhookId": "30e99726-d7bd-40fe-b696-8caafc45d53f"
     },
@@ -42,26 +42,26 @@
         },
         "options": {}
       },
-      "id": "f922c5f3-1a7f-4550-ae88-9ec96be0f548",
+      "id": "07e50bfa-04e7-49c4-ba21-b6b07611fec2",
       "name": "Alert or Daily?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        1568,
-        1264
+        1376,
+        912
       ]
     },
     {
       "parameters": {
-        "jsCode": "\nconst body = $input.first().json.body || $input.first().json;\n\nconst hostname     = body.vm_name || body.hostname || 'unknown';\nconst location     = body.location || 'not set';\nconst primaryIp    = (body.ip && body.ip.primary) ? body.ip.primary : 'unknown';\nconst ram          = body.ram  || {};\nconst disk         = (body.disk && body.disk.root) ? body.disk.root : {};\nconst hasIssues    = body.has_issues === true;\nconst issues       = body.resource_issues || [];\nconst timestamp    = body.timestamp || '';\nconst ownerName    = body.owner  ? body.owner.name  : '';\nconst ownerEmail   = body.owner  ? body.owner.email : '';\nconst ccEmails     = body.cc_emails || '';\nconst networkVer   = body.network_version || '';\n\nconst ramUsedPct  = parseFloat(ram.usage_pct  || 0);\nconst diskUsedPct = parseFloat(disk.usage_pct || 0);\nconst ramFreeGb   = parseFloat(ram.free_gb    || 0).toFixed(1);\nconst ramTotalGb  = parseFloat(ram.total_gb   || 0).toFixed(1);\nconst ramUsedGb   = parseFloat(ram.used_gb    || 0).toFixed(1);\nconst diskFreeGb  = parseFloat(disk.free_gb   || 0).toFixed(1);\nconst diskTotalGb = parseFloat(disk.total_gb  || 0).toFixed(1);\nconst diskUsedGb  = parseFloat(disk.used_gb   || 0).toFixed(1);\n\nconst maxPct = Math.max(ramUsedPct, diskUsedPct);\nlet severity = 'OK';\nlet sevColor = '#27ae60';\nif      (maxPct >= 90) { severity = 'CRITICAL'; sevColor = '#c0392b'; }\nelse if (maxPct >= 80) { severity = 'WARNING';  sevColor = '#e67e22'; }\nelse if (maxPct >= 70) { severity = 'NOTICE';   sevColor = '#f39c12'; }\nelse if (maxPct >= 60) { severity = 'INFO';     sevColor = '#2980b9'; }\n\nconst activeIssues = issues.filter(function(i){ return i.type && i.type !== 'none'; });\n\nvar issueLines = '';\nif (activeIssues.length > 0) {\n  for (var i = 0; i < activeIssues.length; i++) {\n    var iss = activeIssues[i];\n    issueLines += '[' + (iss.severity||'').toUpperCase() + '] ' + iss.message;\n    if (iss.tier) issueLines += ' (repeats every ' + iss.alert_interval_hours + 'h)';\n    issueLines += '\\n';\n  }\n} else {\n  issueLines = 'All resources within normal limits';\n}\n\nfunction bar(pct) {\n  var f = Math.min(Math.round(pct/10),10);\n  var s=''; for(var i=0;i<f;i++) s+='|'; for(var i=0;i<10-f;i++) s+='.';\n  return '['+s+'] '+pct+'%';\n}\n\nfunction tgBar(pct) {\n  var filled = Math.min(Math.round(pct / 5), 20);\n  var s = '';\n  for (var i = 0; i < filled; i++) s += '█';\n  for (var i = 0; i < 20 - filled; i++) s += '░';\n  return s;\n}\nfunction tgSevBadge(sev) {\n  if (sev === 'CRITICAL') return '🟥 CRITICAL';\n  if (sev === 'WARNING')  return '🟧 WARNING';\n  if (sev === 'NOTICE')   return '🟡 NOTICE';\n  if (sev === 'INFO')     return '🔵 INFO';\n  return '🟢 OK';\n}\nfunction tgSevIcon(sev) {\n  if (sev === 'CRITICAL') return '🚨';\n  if (sev === 'WARNING')  return '⚠️';\n  if (sev === 'NOTICE')   return '🟡';\n  if (sev === 'INFO')     return '🔵';\n  return '✅';\n}\nvar div = '──────────────────────';\nvar tgLines = [\n  tgSevIcon(severity) + ' <b>VM INFRASTRUCTURE MONITOR</b>',\n  div,\n  '💻 <b>' + hostname + '</b>   📍 ' + location,\n  '🌐 <b>IP:</b> ' + primaryIp + '   🕐 ' + timestamp,\n  '👤 <b>Owner:</b> ' + ownerName + ' (' + ownerEmail + ')   🔗 <b>Network:</b> ' + networkVer,\n  '<b>Status:</b> ' + tgSevBadge(severity),\n  div,\n  '💾 <b>RAM USAGE</b>',\n  '<code>' + tgBar(ramUsedPct) + '</code>  <b>' + ramUsedPct + '%</b>',\n  'Used: <b>' + ramUsedGb + ' GB</b>  |  Free: <b>' + ramFreeGb + ' GB</b>  |  Total: <b>' + ramTotalGb + ' GB</b>',\n  '',\n  '💿 <b>DISK USAGE (/)</b>',\n  '<code>' + tgBar(diskUsedPct) + '</code>  <b>' + diskUsedPct + '%</b>',\n  'Used: <b>' + diskUsedGb + ' GB</b>  |  Free: <b>' + diskFreeGb + ' GB</b>  |  Total: <b>' + diskTotalGb + ' GB</b>',\n  div,\n];\nif (activeIssues.length > 0) {\n  tgLines.push('⚠️ <b>ACTIVE ISSUES</b>');\n  for (var i = 0; i < activeIssues.length; i++) {\n    var iss = activeIssues[i];\n    var issIcon = (iss.severity==='critical')?'🟥':(iss.severity==='warning')?'🟧':(iss.severity==='notice')?'🟡':'🔵';\n    var tierNote = iss.tier ? ' <i>(repeats every ' + iss.alert_interval_hours + 'h)</i>' : '';\n    tgLines.push(issIcon + ' ' + iss.message + tierNote);\n  }\n} else {\n  tgLines.push('🟢 <b>All resources within normal limits</b>');\n}\ntgLines.push(div);\ntgLines.push('<i>VM Metrics Reporter — Auto-generated alert</i>');\n\nvar subIcon=(severity==='CRITICAL')?'[CRITICAL]':(severity==='WARNING')?'[WARNING]':(severity==='NOTICE')?'[NOTICE]':(severity==='INFO')?'[INFO]':'[OK]';\n\nreturn [{json:{\n  hostname, location, primaryIp, timestamp,\n  hasIssues, severity, sevColor,\n  ramUsedPct, diskUsedPct,\n  ramUsedGb, ramFreeGb, ramTotalGb,\n  diskUsedGb, diskFreeGb, diskTotalGb,\n  issueLines: issueLines.trim(),\n  tgMessage: tgLines.join('\\n'),\n  emailSubject: subIcon+' VM Alert: '+hostname+' | '+timestamp,\n  ramBar: bar(ramUsedPct),\n  diskBar: bar(diskUsedPct),\n  ownerName, ownerEmail, ccEmails, networkVer\n}}];\n"
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nconst hostname   = body.vm_name || body.hostname || 'unknown';\nconst location   = body.location || 'not set';\nconst primaryIp  = (body.ip && body.ip.primary) ? body.ip.primary : 'unknown';\nconst ram        = body.ram  || {};\nconst osType     = body.os_type || 'linux';\nconst allMounts  = (body.disk && body.disk.all_mounts) ? body.disk.all_mounts : [];\nconst rootDisk   = (body.disk && body.disk.root) ? body.disk.root : {};\nconst hasIssues  = body.has_issues === true;\nconst issues     = body.resource_issues || [];\nconst timestamp  = body.timestamp || '';\nconst ownerName  = body.owner  ? body.owner.name  : '';\nconst ownerEmail = body.owner  ? body.owner.email : '';\nconst ccEmails   = body.cc_emails || '';\nconst networkVer = body.network_version || '';\n\nconst ramUsedPct = parseFloat(ram.usage_pct || 0);\nconst ramFreeGb  = parseFloat(ram.free_gb   || 0).toFixed(1);\nconst ramTotalGb = parseFloat(ram.total_gb  || 0).toFixed(1);\nconst ramUsedGb  = parseFloat(ram.used_gb   || 0).toFixed(1);\n\nvar worstDisk = rootDisk;\nif (allMounts.length > 0) {\n  worstDisk = allMounts.reduce(function(w, m) {\n    return parseFloat(m.usage_pct||0) > parseFloat(w.usage_pct||0) ? m : w;\n  }, allMounts[0]);\n}\nconst diskUsedPct = parseFloat(worstDisk.usage_pct || rootDisk.usage_pct || 0);\nconst diskFreeGb  = parseFloat(worstDisk.free_gb   || rootDisk.free_gb   || 0).toFixed(1);\nconst diskTotalGb = parseFloat(worstDisk.total_gb  || rootDisk.total_gb  || 0).toFixed(1);\nconst diskUsedGb  = parseFloat(worstDisk.used_gb   || rootDisk.used_gb   || 0).toFixed(1);\n\nconst maxPct = Math.max(ramUsedPct, diskUsedPct);\nvar severity = 'OK';\nvar sevColor = '#27ae60';\nif      (maxPct >= 90) { severity = 'CRITICAL'; sevColor = '#c0392b'; }\nelse if (maxPct >= 80) { severity = 'WARNING';  sevColor = '#e67e22'; }\nelse if (maxPct >= 70) { severity = 'NOTICE';   sevColor = '#f39c12'; }\nelse if (maxPct >= 60) { severity = 'INFO';     sevColor = '#2980b9'; }\n\nconst activeIssues = issues.filter(function(i){ return i.type && i.type !== 'none'; });\n\nvar issueLines = '';\nif (activeIssues.length > 0) {\n  for (var i = 0; i < activeIssues.length; i++) {\n    var iss = activeIssues[i];\n    issueLines += '[' + (iss.severity||'').toUpperCase() + '] ' + iss.message;\n    if (iss.tier) issueLines += ' (repeats every ' + iss.alert_interval_hours + 'h)';\n    issueLines += '\\n';\n  }\n} else {\n  issueLines = 'All resources within normal limits';\n}\n\nfunction bar(pct) {\n  var f = Math.min(Math.round(pct/10),10);\n  var s=''; for(var i=0;i<f;i++) s+='|'; for(var i=0;i<10-f;i++) s+='.';\n  return '['+s+'] '+pct+'%';\n}\n\n// ── Emoji constants (pure ASCII code points — immune to encoding issues) ──\nvar fcp = String.fromCodePoint.bind(String);\nvar fcc = String.fromCharCode.bind(String);\nvar E = {\n  alert:  fcp(0x1F6A8),              // 🚨\n  warn:   fcp(0x26A0)+fcp(0xFE0F),   // ⚠️\n  notice: fcp(0x1F7E1),              // 🟡\n  info:   fcp(0x1F535),              // 🔵\n  ok:     fcp(0x2705),               // ✅\n  sqRed:  fcp(0x1F7E5),              // 🟥\n  sqOrg:  fcp(0x1F7E7),              // 🟧\n  sqGrn:  fcp(0x1F7E2),              // 🟢\n  win:    fcp(0x1FA9F),              // 🪟\n  linux:  fcp(0x1F427),              // 🐧\n  ram:    fcp(0x1F4BE),              // 💾\n  disk:   fcp(0x1F4BF),              // 💿\n  pc:     fcp(0x1F4BB),              // 💻\n  pin:    fcp(0x1F4CD),              // 📍\n  globe:  fcp(0x1F310),              // 🌐\n  clock:  fcp(0x1F553),              // 🕓\n  person: fcp(0x1F464),              // 👤\n  link:   fcp(0x1F517),              // 🔗\n  full:   fcc(0x2588),               // █\n  empty:  fcc(0x2591),               // ░\n  div:    fcc(0x2500).repeat(22)     // ──────────────────────\n};\n\nfunction tgBar(pct) {\n  var filled = Math.min(Math.round(pct / 5), 20);\n  var s = '';\n  for (var i = 0; i < filled; i++) s += E.full;\n  for (var i = 0; i < 20 - filled; i++) s += E.empty;\n  return s;\n}\nfunction tgSevBadge(sev) {\n  if (sev === 'CRITICAL') return E.sqRed + ' CRITICAL';\n  if (sev === 'WARNING')  return E.sqOrg + ' WARNING';\n  if (sev === 'NOTICE')   return E.notice + ' NOTICE';\n  if (sev === 'INFO')     return E.info + ' INFO';\n  return E.sqGrn + ' OK';\n}\nfunction tgSevIcon(sev) {\n  if (sev === 'CRITICAL') return E.alert;\n  if (sev === 'WARNING')  return E.warn;\n  if (sev === 'NOTICE')   return E.notice;\n  if (sev === 'INFO')     return E.info;\n  return E.ok;\n}\n\nvar osIcon  = osType === 'windows' ? E.win : E.linux;\nvar osLabel = osType === 'windows' ? 'Windows' : 'Linux';\n\nvar tgLines = [\n  tgSevIcon(severity) + ' <b>VM INFRASTRUCTURE MONITOR</b>',\n  E.div,\n  E.pc + ' <b>' + hostname + '</b>   ' + E.pin + ' ' + location,\n  E.globe + ' <b>IP:</b> ' + primaryIp + '   ' + E.clock + ' ' + timestamp,\n  E.person + ' <b>Owner:</b> ' + ownerName + ' (' + ownerEmail + ')   ' + E.link + ' <b>Network:</b> ' + networkVer,\n  osIcon + ' <b>OS:</b> ' + osLabel + '   <b>Status:</b> ' + tgSevBadge(severity),\n  E.div,\n  E.ram + ' <b>RAM USAGE</b>',\n  '<code>' + tgBar(ramUsedPct) + '</code>  <b>' + ramUsedPct + '%</b>',\n  'Used: <b>' + ramUsedGb + ' GB</b>  |  Free: <b>' + ramFreeGb + ' GB</b>  |  Total: <b>' + ramTotalGb + ' GB</b>',\n  ''\n];\n\nif (osType === 'windows' && allMounts.length > 0) {\n  tgLines.push(E.disk + ' <b>DISK USAGE (All Drives)</b>');\n  for (var d = 0; d < allMounts.length; d++) {\n    var mnt = allMounts[d];\n    var dpct = parseFloat(mnt.usage_pct || 0);\n    tgLines.push('<b>' + mnt.mount + '</b>  <code>' + tgBar(dpct) + '</code>  <b>' + dpct + '%</b>');\n    tgLines.push('Used: <b>' + parseFloat(mnt.used_gb||0).toFixed(1) + ' GB</b>  |  Free: <b>' + parseFloat(mnt.free_gb||0).toFixed(1) + ' GB</b>  |  Total: <b>' + parseFloat(mnt.total_gb||0).toFixed(1) + ' GB</b>');\n    if (d < allMounts.length - 1) tgLines.push('');\n  }\n} else {\n  tgLines.push(E.disk + ' <b>DISK USAGE (/)</b>');\n  tgLines.push('<code>' + tgBar(diskUsedPct) + '</code>  <b>' + diskUsedPct + '%</b>');\n  tgLines.push('Used: <b>' + diskUsedGb + ' GB</b>  |  Free: <b>' + diskFreeGb + ' GB</b>  |  Total: <b>' + diskTotalGb + ' GB</b>');\n}\ntgLines.push(E.div);\n\nif (activeIssues.length > 0) {\n  tgLines.push(E.warn + ' <b>ACTIVE ISSUES</b>');\n  for (var i = 0; i < activeIssues.length; i++) {\n    var iss = activeIssues[i];\n    var issIcon = (iss.severity==='critical')?E.sqRed:(iss.severity==='warning')?E.sqOrg:(iss.severity==='notice')?E.notice:E.info;\n    var tierNote = iss.tier ? ' <i>(repeats every ' + iss.alert_interval_hours + 'h)</i>' : '';\n    tgLines.push(issIcon + ' ' + iss.message + tierNote);\n  }\n} else {\n  tgLines.push(E.sqGrn + ' <b>All resources within normal limits</b>');\n}\ntgLines.push(E.div);\ntgLines.push('<i>VM Metrics Reporter \\u2013 Auto-generated alert</i>');\n\nvar subIcon = (severity==='CRITICAL')?'[CRITICAL]':(severity==='WARNING')?'[WARNING]':(severity==='NOTICE')?'[NOTICE]':(severity==='INFO')?'[INFO]':'[OK]';\n\n// ── Email disk blocks HTML ──\nvar diskBlocksHtml = '';\nif (osType === 'windows' && allMounts.length > 0) {\n  for (var d = 0; d < allMounts.length; d++) {\n    var mnt  = allMounts[d];\n    var dpct = parseFloat(mnt.usage_pct || 0);\n    var dclr = dpct>=90?'#c0392b':dpct>=80?'#e67e22':dpct>=70?'#f39c12':dpct>=60?'#2980b9':'#27ae60';\n    var dused  = parseFloat(mnt.used_gb ||0).toFixed(1);\n    var dfree  = parseFloat(mnt.free_gb ||0).toFixed(1);\n    var dtotal = parseFloat(mnt.total_gb||0).toFixed(1);\n    diskBlocksHtml += '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:12px\"><tr><td style=\"padding:18px 20px;border:1px solid #e2e8f0;border-radius:12px;background:#fafbfc\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td><p style=\"margin:0;font-size:13px;font-weight:700;color:#475569\">&#128191; Disk ' + mnt.mount + '</p></td><td align=\"right\"><p style=\"margin:0;font-size:22px;font-weight:900;color:' + dclr + '\">' + dpct + '%</p></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:10px 0 0\"><tr><td bgcolor=\"#e2e8f0\" style=\"border-radius:99px;height:10px;overflow:hidden\"><table cellpadding=\"0\" cellspacing=\"0\" width=\"' + dpct + '%\"><tr><td style=\"height:10px;background:' + dclr + ';border-radius:99px;font-size:1px\">&nbsp;</td></tr></table></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:10px\"><tr><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Used</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">' + dused + ' GB</p></td><td style=\"text-align:center;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0\"><p style=\"margin:0;font-size:11px;color:#64748b\">Free</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">' + dfree + ' GB</p></td><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Total</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">' + dtotal + ' GB</p></td></tr></table></td></tr></table>';\n  }\n} else {\n  var dclr2 = diskUsedPct>=90?'#c0392b':diskUsedPct>=80?'#e67e22':diskUsedPct>=70?'#f39c12':diskUsedPct>=60?'#2980b9':'#27ae60';\n  diskBlocksHtml = '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:24px\"><tr><td style=\"padding:18px 20px;border:1px solid #e2e8f0;border-radius:12px;background:#fafbfc\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td><p style=\"margin:0;font-size:13px;font-weight:700;color:#475569\">&#128191; Disk Usage (/)</p></td><td align=\"right\"><p style=\"margin:0;font-size:22px;font-weight:900;color:' + dclr2 + '\">' + diskUsedPct + '%</p></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:10px 0 0\"><tr><td bgcolor=\"#e2e8f0\" style=\"border-radius:99px;height:10px;overflow:hidden\"><table cellpadding=\"0\" cellspacing=\"0\" width=\"' + diskUsedPct + '%\"><tr><td style=\"height:10px;background:' + dclr2 + ';border-radius:99px;font-size:1px\">&nbsp;</td></tr></table></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:10px\"><tr><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Used</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">' + diskUsedGb + ' GB</p></td><td style=\"text-align:center;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0\"><p style=\"margin:0;font-size:11px;color:#64748b\">Free</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">' + diskFreeGb + ' GB</p></td><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Total</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">' + diskTotalGb + ' GB</p></td></tr></table></td></tr></table>';\n}\n\nvar osBadgeHtml = '<p style=\"margin:4px 0 0;font-size:12px;color:rgba(255,255,255,0.8)\">' + osIcon + ' ' + osLabel + '</p>';\n\n// sevIconHtml — HTML decimal entities, safe in any email client\nvar sevIconHtml = severity==='CRITICAL' ? '&#128680;'\n                : severity==='WARNING'  ? '&#9888;&#65039;'\n                : severity==='NOTICE'   ? '&#128993;'\n                : severity==='INFO'     ? '&#128309;'\n                : '&#9989;';\n\nreturn [{json:{\n  hostname, location, primaryIp, timestamp,\n  hasIssues, severity, sevColor,\n  osType, osIcon, osLabel,\n  ramUsedPct, diskUsedPct,\n  ramUsedGb, ramFreeGb, ramTotalGb,\n  diskUsedGb, diskFreeGb, diskTotalGb,\n  allMounts,\n  issueLines: issueLines.trim(),\n  tgMessage: tgLines.join('\\n'),\n  emailSubject: subIcon+' VM Alert: '+hostname+' | '+timestamp,\n  ramBar: bar(ramUsedPct),\n  diskBar: bar(diskUsedPct),\n  ownerName, ownerEmail, ccEmails, networkVer,\n  diskBlocksHtml, osBadgeHtml, sevIconHtml\n}}];"
       },
-      "id": "f2e5ede1-f7f8-4825-9c85-97270ded76d5",
+      "id": "0538ee49-5ae3-40a7-a11f-b8df58589320",
       "name": "Process Metrics",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1792,
-        1360
+        1600,
+        1008
       ]
     },
     {
@@ -88,13 +88,13 @@
         },
         "options": {}
       },
-      "id": "520ddfd8-e924-4114-94c0-8827bea3cd0c",
+      "id": "52cac81d-dce3-4d86-8305-04b6e24f3684",
       "name": "Disk >= 90%?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        2016,
-        1360
+        1824,
+        1008
       ]
     },
     {
@@ -108,55 +108,60 @@
           "parse_mode": "HTML"
         }
       },
-      "id": "0d5b8e2b-f380-4e2b-b413-8bd8646e2a6c",
+      "id": "02718a69-1797-4815-8daf-fa0f92029ef0",
       "name": "Telegram Alert",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2240,
-        1264
+        2048,
+        912
       ],
       "webhookId": "a45a9c33-fb66-4292-bcdb-74cf3a55537a",
-      "disabled": true
+      "credentials": {
+        "telegramApi": {
+          "id": "n1pmUJpCIrh5ZlQh",
+          "name": "Telegram account"
+        }
+      }
     },
     {
       "parameters": {
         "fromEmail": "coren8n@omneia.net",
         "toEmail": "={{ $json.ownerEmail }}",
         "subject": "={{ $json.emailSubject }}",
-        "html": "=<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head><body style=\"margin:0;padding:0;background:#e8edf5;font-family:Arial,Helvetica,sans-serif\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" bgcolor=\"#e8edf5\"><tr><td align=\"center\" style=\"padding:36px 12px\"><table width=\"620\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.13)\"><tr><td style=\"background:{{ $json.sevColor }};padding:30px 36px\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td valign=\"middle\"><p style=\"margin:0;font-size:11px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.65)\">VM Infrastructure Monitor</p><p style=\"margin:8px 0 4px;font-size:28px;font-weight:900;color:#ffffff;line-height:1\">{{ $json.severity }}</p><p style=\"margin:0;font-size:14px;color:rgba(255,255,255,0.8)\">{{ $json.hostname }} &nbsp;&#8250;&nbsp; {{ $json.location }}</p></td><td align=\"right\" valign=\"middle\" width=\"80\"><table cellpadding=\"0\" cellspacing=\"0\"><tr><td align=\"center\" style=\"background:rgba(255,255,255,0.15);border-radius:50%;width:64px;height:64px\"><p style=\"margin:0;font-size:30px;line-height:64px\">{{ $json.severity == \"CRITICAL\" ? \"🚨\" : $json.severity == \"WARNING\" ? \"⚠️\" : $json.severity == \"NOTICE\" ? \"🟡\" : $json.severity == \"INFO\" ? \"🔵\" : \"✅\" }}</p></td></tr></table></td></tr></table></td></tr><tr><td bgcolor=\"#f8fafc\" style=\"border-bottom:2px solid #e8edf5\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td width=\"25%\" style=\"padding:14px 0;border-right:1px solid #e2e8f0;text-align:center\"><p style=\"margin:0;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8\">VM Name</p><p style=\"margin:5px 0 0;font-size:14px;font-weight:700;color:#0f172a\">{{ $json.hostname }}</p></td><td width=\"25%\" style=\"padding:14px 0;border-right:1px solid #e2e8f0;text-align:center\"><p style=\"margin:0;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8\">IP Address</p><p style=\"margin:5px 0 0;font-size:14px;font-weight:700;color:#0f172a\">{{ $json.primaryIp }}</p></td><td width=\"25%\" style=\"padding:14px 0;border-right:1px solid #e2e8f0;text-align:center\"><p style=\"margin:0;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8\">Status</p><p style=\"margin:5px 0 0;font-size:14px;font-weight:800;color:{{ $json.sevColor }}\">{{ $json.severity }}</p></td><td width=\"25%\" style=\"padding:14px 0;text-align:center\"><p style=\"margin:0;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8\">Report Time</p><p style=\"margin:5px 0 0;font-size:12px;font-weight:600;color:#0f172a\">{{ $json.timestamp }}</p></td></tr></table></td></tr><tr><td bgcolor=\"#ffffff\" style=\"padding:28px 36px\"><p style=\"margin:0 0 16px;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#94a3b8;border-bottom:1px solid #f1f5f9;padding-bottom:10px\">Resource Usage</p><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:20px\"><tr><td style=\"padding:18px 20px;border:1px solid #e2e8f0;border-radius:12px;background:#fafbfc\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td><p style=\"margin:0;font-size:13px;font-weight:700;color:#475569\">&#128190; RAM Usage</p></td><td align=\"right\"><p style=\"margin:0;font-size:22px;font-weight:900;color:{{ $json.ramUsedPct >= 90 ? \"#c0392b\" : $json.ramUsedPct >= 80 ? \"#e67e22\" : $json.ramUsedPct >= 70 ? \"#f39c12\" : $json.ramUsedPct >= 60 ? \"#2980b9\" : \"#27ae60\" }}\">{{ $json.ramUsedPct }}%</p></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:10px 0 0\"><tr><td bgcolor=\"#e2e8f0\" style=\"border-radius:99px;height:10px;overflow:hidden\"><table cellpadding=\"0\" cellspacing=\"0\" width=\"{{ $json.ramUsedPct }}%\"><tr><td style=\"height:10px;background:{{ $json.ramUsedPct >= 90 ? \"#c0392b\" : $json.ramUsedPct >= 80 ? \"#e67e22\" : $json.ramUsedPct >= 70 ? \"#f39c12\" : $json.ramUsedPct >= 60 ? \"#2980b9\" : \"#27ae60\" }};border-radius:99px;font-size:1px\">&nbsp;</td></tr></table></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:10px\"><tr><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Used</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">{{ $json.ramUsedGb }} GB</p></td><td style=\"text-align:center;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0\"><p style=\"margin:0;font-size:11px;color:#64748b\">Free</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">{{ $json.ramFreeGb }} GB</p></td><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Total</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">{{ $json.ramTotalGb }} GB</p></td></tr></table></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:24px\"><tr><td style=\"padding:18px 20px;border:1px solid #e2e8f0;border-radius:12px;background:#fafbfc\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td><p style=\"margin:0;font-size:13px;font-weight:700;color:#475569\">&#128191; Disk Usage (/)</p></td><td align=\"right\"><p style=\"margin:0;font-size:22px;font-weight:900;color:{{ $json.diskUsedPct >= 90 ? \"#c0392b\" : $json.diskUsedPct >= 80 ? \"#e67e22\" : $json.diskUsedPct >= 70 ? \"#f39c12\" : $json.diskUsedPct >= 60 ? \"#2980b9\" : \"#27ae60\" }}\">{{ $json.diskUsedPct }}%</p></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:10px 0 0\"><tr><td bgcolor=\"#e2e8f0\" style=\"border-radius:99px;height:10px;overflow:hidden\"><table cellpadding=\"0\" cellspacing=\"0\" width=\"{{ $json.diskUsedPct }}%\"><tr><td style=\"height:10px;background:{{ $json.diskUsedPct >= 90 ? \"#c0392b\" : $json.diskUsedPct >= 80 ? \"#e67e22\" : $json.diskUsedPct >= 70 ? \"#f39c12\" : $json.diskUsedPct >= 60 ? \"#2980b9\" : \"#27ae60\" }};border-radius:99px;font-size:1px\">&nbsp;</td></tr></table></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:10px\"><tr><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Used</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">{{ $json.diskUsedGb }} GB</p></td><td style=\"text-align:center;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0\"><p style=\"margin:0;font-size:11px;color:#64748b\">Free</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">{{ $json.diskFreeGb }} GB</p></td><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Total</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">{{ $json.diskTotalGb }} GB</p></td></tr></table></td></tr></table><p style=\"margin:0 0 12px;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#94a3b8;border-bottom:1px solid #f1f5f9;padding-bottom:10px\">Active Issues</p><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"padding:14px 18px;border-left:4px solid {{ $json.hasIssues ? $json.sevColor : '#27ae60' }};border-radius:0 8px 8px 0;background:#f8fafc\"><p style=\"margin:0;font-size:13px;color:#334155;line-height:1.7;white-space:pre-line\">{{ $json.issueLines }}</p></td></tr></table></td></tr><tr><td bgcolor=\"#f1f5f9\" style=\"padding:18px 36px;border-top:1px solid #e2e8f0;border-radius:0 0 16px 16px\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td><p style=\"margin:0;font-size:11px;color:#94a3b8\">VM Metrics Reporter &mdash; Auto-generated alert</p></td><td align=\"right\"><p style=\"margin:0;font-size:11px;color:#94a3b8\">{{ $json.timestamp }}</p></td></tr></table></td></tr></table></td></tr></table></body></html>",
+        "html": "=<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head><body style=\"margin:0;padding:0;background:#e8edf5;font-family:Arial,Helvetica,sans-serif\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" bgcolor=\"#e8edf5\"><tr><td align=\"center\" style=\"padding:36px 12px\"><table width=\"620\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.13)\"><tr><td style=\"background:{{ $json.sevColor }};padding:30px 36px\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td valign=\"middle\"><p style=\"margin:0;font-size:11px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.65)\">VM Infrastructure Monitor</p><p style=\"margin:8px 0 4px;font-size:28px;font-weight:900;color:#ffffff;line-height:1\">{{ $json.severity }}</p><p style=\"margin:0;font-size:14px;color:rgba(255,255,255,0.8)\">{{ $json.hostname }} &nbsp;&#8250;&nbsp; {{ $json.location }}</p>{{ $json.osBadgeHtml }}</td><td align=\"right\" valign=\"middle\" width=\"80\"><table cellpadding=\"0\" cellspacing=\"0\"><tr><td align=\"center\" style=\"background:rgba(255,255,255,0.15);border-radius:50%;width:64px;height:64px\"><p style=\"margin:0;font-size:30px;line-height:64px\">{{ $json.sevIconHtml }}</p></td></tr></table></td></tr></table></td></tr><tr><td bgcolor=\"#f8fafc\" style=\"border-bottom:2px solid #e8edf5\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td width=\"25%\" style=\"padding:14px 0;border-right:1px solid #e2e8f0;text-align:center\"><p style=\"margin:0;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8\">VM Name</p><p style=\"margin:5px 0 0;font-size:14px;font-weight:700;color:#0f172a\">{{ $json.hostname }}</p></td><td width=\"25%\" style=\"padding:14px 0;border-right:1px solid #e2e8f0;text-align:center\"><p style=\"margin:0;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8\">IP Address</p><p style=\"margin:5px 0 0;font-size:14px;font-weight:700;color:#0f172a\">{{ $json.primaryIp }}</p></td><td width=\"25%\" style=\"padding:14px 0;border-right:1px solid #e2e8f0;text-align:center\"><p style=\"margin:0;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8\">Status</p><p style=\"margin:5px 0 0;font-size:14px;font-weight:800;color:{{ $json.sevColor }}\">{{ $json.severity }}</p></td><td width=\"25%\" style=\"padding:14px 0;text-align:center\"><p style=\"margin:0;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#94a3b8\">Report Time</p><p style=\"margin:5px 0 0;font-size:12px;font-weight:600;color:#0f172a\">{{ $json.timestamp }}</p></td></tr></table></td></tr><tr><td bgcolor=\"#ffffff\" style=\"padding:28px 36px\"><p style=\"margin:0 0 16px;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#94a3b8;border-bottom:1px solid #f1f5f9;padding-bottom:10px\">Resource Usage</p><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:20px\"><tr><td style=\"padding:18px 20px;border:1px solid #e2e8f0;border-radius:12px;background:#fafbfc\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td><p style=\"margin:0;font-size:13px;font-weight:700;color:#475569\">&#128190; RAM Usage</p></td><td align=\"right\"><p style=\"margin:0;font-size:22px;font-weight:900;color:{{ $json.ramUsedPct >= 90 ? \"#c0392b\" : $json.ramUsedPct >= 80 ? \"#e67e22\" : $json.ramUsedPct >= 70 ? \"#f39c12\" : $json.ramUsedPct >= 60 ? \"#2980b9\" : \"#27ae60\" }}\">{{ $json.ramUsedPct }}%</p></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:10px 0 0\"><tr><td bgcolor=\"#e2e8f0\" style=\"border-radius:99px;height:10px;overflow:hidden\"><table cellpadding=\"0\" cellspacing=\"0\" width=\"{{ $json.ramUsedPct }}%\"><tr><td style=\"height:10px;background:{{ $json.ramUsedPct >= 90 ? \"#c0392b\" : $json.ramUsedPct >= 80 ? \"#e67e22\" : $json.ramUsedPct >= 70 ? \"#f39c12\" : $json.ramUsedPct >= 60 ? \"#2980b9\" : \"#27ae60\" }};border-radius:99px;font-size:1px\">&nbsp;</td></tr></table></td></tr></table><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:10px\"><tr><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Used</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">{{ $json.ramUsedGb }} GB</p></td><td style=\"text-align:center;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0\"><p style=\"margin:0;font-size:11px;color:#64748b\">Free</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">{{ $json.ramFreeGb }} GB</p></td><td style=\"text-align:center\"><p style=\"margin:0;font-size:11px;color:#64748b\">Total</p><p style=\"margin:3px 0 0;font-size:14px;font-weight:700;color:#1e293b\">{{ $json.ramTotalGb }} GB</p></td></tr></table></td></tr></table>{{ $json.diskBlocksHtml }}<p style=\"margin:0 0 12px;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#94a3b8;border-bottom:1px solid #f1f5f9;padding-bottom:10px\">Active Issues</p><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"padding:14px 18px;border-left:4px solid {{ $json.hasIssues ? $json.sevColor : '#27ae60' }};border-radius:0 8px 8px 0;background:#f8fafc\"><p style=\"margin:0;font-size:13px;color:#334155;line-height:1.7;white-space:pre-line\">{{ $json.issueLines }}</p></td></tr></table></td></tr><tr><td bgcolor=\"#f1f5f9\" style=\"padding:18px 36px;border-top:1px solid #e2e8f0;border-radius:0 0 16px 16px\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td><p style=\"margin:0;font-size:11px;color:#94a3b8\">VM Metrics Reporter &mdash; Auto-generated alert</p></td><td align=\"right\"><p style=\"margin:0;font-size:11px;color:#94a3b8\">{{ $json.timestamp }}</p></td></tr></table></td></tr></table></td></tr></table></body></html>\n",
         "options": {
           "appendAttribution": false,
           "ccEmail": "={{ $json.ccEmails }}"
         }
       },
-      "id": "e4134a1d-b4bb-4f1a-a384-9e5f097a7130",
+      "id": "b4597a72-d2a5-4e40-b340-09aa55878d60",
       "name": "Email Alert",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        2240,
-        1456
+        2048,
+        1104
       ],
       "webhookId": "54f9d808-af82-4ad9-8bd5-8f84a01a3bf3",
       "credentials": {
         "smtp": {
-          "id": "n7BEG6Zk1100LE0l",
-          "name": "smtp-coren8n@omneia.net"
+          "id": "UNDz6cEeif5EQK68",
+          "name": "SMTP account"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nconst ram  = body.ram  || {};\nconst disk = (body.disk && body.disk.root) ? body.disk.root : {};\nconst ip   = body.ip   || {};\nconst today = (body.report_date || new Date().toISOString().slice(0, 10));\n\nconst ramUsedPct  = parseFloat(ram.usage_pct  || 0);\nconst diskUsedPct = parseFloat(disk.usage_pct || 0);\nconst maxPct = Math.max(ramUsedPct, diskUsedPct);\nlet severity = 'OK';\nif      (maxPct >= 90) severity = 'CRITICAL';\nelse if (maxPct >= 80) severity = 'WARNING';\nelse if (maxPct >= 70) severity = 'NOTICE';\nelse if (maxPct >= 60) severity = 'INFO';\n\nconst vmName     = body.vm_name || 'unknown';\nconst primaryIp  = (ip.primary || ip.all) || 'unknown';\nconst location   = body.location        || '';\nconst networkVer = body.network_version || '';\nconst timestamp  = body.timestamp       || '';\nconst ownerName  = body.owner ? body.owner.name  : '';\nconst ownerEmail = body.owner ? body.owner.email : '';\nconst ccEmails   = body.cc_emails || '';\n\n// Build the full data object to store as JSON\nconst vmData = {\n  vm_name:       vmName,\n  primaryIp:     primaryIp,\n  hostname:      vmName,\n  location:      location,\n  network:       networkVer,\n  severity:      severity,\n  ramUsedPct:    ramUsedPct,\n  ramUsedGb:     parseFloat(ram.used_gb    || 0).toFixed(1),\n  ramFreeGb:     parseFloat(ram.free_gb    || 0).toFixed(1),\n  ramTotalGb:    parseFloat(ram.total_gb   || 0).toFixed(1),\n  diskUsedPct:   diskUsedPct,\n  diskUsedGb:    parseFloat(disk.used_gb   || 0).toFixed(1),\n  diskFreeGb:    parseFloat(disk.free_gb   || 0).toFixed(1),\n  diskTotalGb:   parseFloat(disk.total_gb  || 0).toFixed(1),\n  timestamp:     timestamp,\n  report_date:   today,\n  ownerName:     ownerName,\n  ownerEmail:    ownerEmail,\n  ccEmails:      ccEmails,\n  activeIssues:  (body.resource_issues || []).filter(i => i.type && i.type !== 'none')\n};\n\nreturn [{ json: {\n  ip: primaryIp,\n  data: JSON.stringify(vmData).replace(/'/g, \"''\"),\n  vm_name: vmName,\n  report_date: today\n}}];\n"
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nconst ram       = body.ram  || {};\nconst disk      = (body.disk && body.disk.root) ? body.disk.root : {};\nconst allMounts = (body.disk && body.disk.all_mounts) ? body.disk.all_mounts : [];\nconst ip        = body.ip   || {};\nconst today     = (body.report_date || new Date().toISOString().slice(0, 10));\nconst osType    = body.os_type || 'linux';\n\nconst ramUsedPct = parseFloat(ram.usage_pct || 0);\n\n// Use worst drive across all mounts for overall disk %\nvar worstDisk = disk;\nif (allMounts.length > 0) {\n  worstDisk = allMounts.reduce(function(w, m) {\n    return parseFloat(m.usage_pct||0) > parseFloat(w.usage_pct||0) ? m : w;\n  }, allMounts[0]);\n}\nconst diskUsedPct = parseFloat(worstDisk.usage_pct || disk.usage_pct || 0);\nconst maxPct = Math.max(ramUsedPct, diskUsedPct);\nlet severity = 'OK';\nif      (maxPct >= 90) severity = 'CRITICAL';\nelse if (maxPct >= 80) severity = 'WARNING';\nelse if (maxPct >= 70) severity = 'NOTICE';\nelse if (maxPct >= 60) severity = 'INFO';\n\nconst vmName     = body.vm_name || 'unknown';\nconst primaryIp  = (ip.primary || ip.all) || 'unknown';\nconst location   = body.location        || '';\nconst networkVer = body.network_version || '';\nconst timestamp  = body.timestamp       || '';\nconst ownerName  = body.owner ? body.owner.name  : '';\nconst ownerEmail = body.owner ? body.owner.email : '';\nconst ccEmails   = body.cc_emails || '';\n\nconst vmData = {\n  vm_name:     vmName,\n  primaryIp:   primaryIp,\n  hostname:    vmName,\n  location:    location,\n  network:     networkVer,\n  severity:    severity,\n  os_type:     osType,\n  ramUsedPct:  ramUsedPct,\n  ramUsedGb:   parseFloat(ram.used_gb   || 0).toFixed(1),\n  ramFreeGb:   parseFloat(ram.free_gb   || 0).toFixed(1),\n  ramTotalGb:  parseFloat(ram.total_gb  || 0).toFixed(1),\n  diskUsedPct: diskUsedPct,\n  diskUsedGb:  parseFloat(worstDisk.used_gb  || disk.used_gb  || 0).toFixed(1),\n  diskFreeGb:  parseFloat(worstDisk.free_gb  || disk.free_gb  || 0).toFixed(1),\n  diskTotalGb: parseFloat(worstDisk.total_gb || disk.total_gb || 0).toFixed(1),\n  allMounts:   allMounts,\n  timestamp:   timestamp,\n  report_date: today,\n  ownerName:   ownerName,\n  ownerEmail:  ownerEmail,\n  ccEmails:    ccEmails,\n  activeIssues: (body.resource_issues || []).filter(i => i.type && i.type !== 'none')\n};\n\nreturn [{ json: {\n  ip: primaryIp,\n  data: JSON.stringify(vmData).replace(/'/g, \"''\"),\n  vm_name: vmName,\n  report_date: today\n}}];"
       },
-      "id": "02943eb1-1f2b-4ce5-8090-b3e2ece14c06",
+      "id": "8551be21-ff17-4b28-bb60-f30a07ae75a2",
       "name": "Prepare VM for MySQL",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1792,
-        1168
+        1600,
+        816
       ]
     },
     {
@@ -165,17 +170,17 @@
         "query": "INSERT INTO vm_machines (ip, data, updated_at)\nVALUES ('{{ $json.ip }}', '{{ $json.data }}', NOW())\nON DUPLICATE KEY UPDATE\n  data = VALUES(data),\n  updated_at = NOW();",
         "options": {}
       },
-      "id": "96751a5c-30b0-42f7-9bda-d41b1104295f",
+      "id": "1cb29b38-645d-40d0-bc0b-bdf9b9240282",
       "name": "Save VM to MySQL",
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.4,
       "position": [
-        2016,
-        1168
+        1824,
+        816
       ],
       "credentials": {
         "mySql": {
-          "id": "S8nNClNKcq2PMiI8",
+          "id": "R6RgMD1RPQyGXUdG",
           "name": "MySQL account"
         }
       }
@@ -191,13 +196,13 @@
           ]
         }
       },
-      "id": "3dc2ed9c-33c3-4802-baf1-3beda0ee8e82",
+      "id": "0e7c4101-6fb7-4ffe-9cfb-e9d823282ab0",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        1344,
-        1776
+        1152,
+        1424
       ]
     },
     {
@@ -206,32 +211,32 @@
         "query": "SELECT ip, data FROM vm_machines;",
         "options": {}
       },
-      "id": "eb0dfa28-d410-4e0c-a1f1-fee4a48bcda7",
+      "id": "3fd58edc-fb19-4325-925f-629baec7211d",
       "name": "Read VMs from MySQL",
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.4,
       "position": [
-        1568,
-        1776
+        1376,
+        1424
       ],
       "credentials": {
         "mySql": {
-          "id": "S8nNClNKcq2PMiI8",
+          "id": "R6RgMD1RPQyGXUdG",
           "name": "MySQL account"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "const machines = {};\nfor (const row of $input.all()) {\n  try {\n    const m = JSON.parse(row.json.data);\n    machines[m.primaryIp || row.json.ip] = m;\n  } catch(e) {}\n}\n\nconst ipList = Object.keys(machines);\nif (ipList.length === 0) return [{ json: { noData: true } }];\n\nconst list = ipList.map(ip => machines[ip]);\nconst SEV_ORDER = { CRITICAL: 0, WARNING: 1, NOTICE: 2, INFO: 3, OK: 4 };\nlist.sort((a, b) => (SEV_ORDER[a.severity] ?? 5) - (SEV_ORDER[b.severity] ?? 5));\n\nconst now = new Date().toLocaleString('en-GB', {\n  weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',\n  hour: '2-digit', minute: '2-digit'\n});\n\nconst vmCount   = list.length;\nconst critCount = list.filter(m => m.severity === 'CRITICAL').length;\nconst warnCount = list.filter(m => m.severity === 'WARNING').length;\nconst okCount   = list.filter(m => m.severity === 'OK').length;\n\nfunction pctColor(pct) {\n  if (pct >= 90) return '#b91c1c';\n  if (pct >= 80) return '#c2410c';\n  if (pct >= 70) return '#b45309';\n  if (pct >= 60) return '#1d4ed8';\n  return '#15803d';\n}\n\nfunction barCell(pct, gb) {\n  const clr = pctColor(pct);\n  const w = Math.min(pct, 100);\n  return '<td style=\"padding:16px 18px;vertical-align:middle\">'\n    + '<table cellpadding=\"0\" cellspacing=\"0\"><tr>'\n    + '<td style=\"padding-right:10px\">'\n      + '<p style=\"margin:0;font-size:16px;font-weight:800;color:' + clr + '\">' + pct + '%</p>'\n      + '<p style=\"margin:3px 0 0;font-size:12px;color:#9ca3af\">' + gb + ' GB</p>'\n    + '</td>'\n    + '<td valign=\"middle\">'\n      + '<table cellpadding=\"0\" cellspacing=\"0\" width=\"64\" style=\"margin-top:2px\"><tr>'\n        + '<td bgcolor=\"#e5e7eb\" style=\"border-radius:3px;height:6px;overflow:hidden;width:64px\">'\n          + '<table cellpadding=\"0\" cellspacing=\"0\" width=\"' + w + '%\"><tr>'\n            + '<td bgcolor=\"' + clr + '\" style=\"height:6px;border-radius:3px;font-size:1px\">&nbsp;</td>'\n          + '</tr></table>'\n        + '</td>'\n      + '</tr></table>'\n    + '</td>'\n    + '</tr></table>'\n  + '</td>';\n}\n\nfunction badgeStyle(sev) {\n  if (sev === 'CRITICAL') return 'background:#fee2e2;color:#b91c1c';\n  if (sev === 'WARNING')  return 'background:#ffedd5;color:#c2410c';\n  if (sev === 'NOTICE')   return 'background:#fef3c7;color:#b45309';\n  if (sev === 'INFO')     return 'background:#dbeafe;color:#1d4ed8';\n  return                         'background:#dcfce7;color:#15803d';\n}\n\nfunction rowBg(sev, index) {\n  if (index % 2 !== 0) return '#fafafa';\n  if (sev === 'CRITICAL') return '#fff5f5';\n  if (sev === 'WARNING')  return '#fffbf5';\n  return '#ffffff';\n}\n\nlet rows = '';\nfor (let i = 0; i < list.length; i++) {\n  const m = list[i];\n  rows +=\n    '<tr bgcolor=\"' + rowBg(m.severity, i) + '\">'\n    + '<td style=\"padding:16px 18px;vertical-align:middle\">'\n      + '<p style=\"margin:0;font-size:16px;font-weight:800;color:#111827\">' + (m.hostname || m.vm_name) + '</p>'\n    + '</td>'\n    + '<td style=\"padding:16px 18px;vertical-align:middle\">'\n      + '<p style=\"margin:0;font-size:15px;font-family:monospace;color:#4b5563\">' + m.primaryIp + '</p>'\n    + '</td>'\n    + barCell(m.ramUsedPct, m.ramUsedGb)\n    + barCell(m.diskUsedPct, m.diskUsedGb)\n    + '<td style=\"padding:16px 18px;vertical-align:middle;text-align:center\">'\n      + '<span style=\"display:inline-block;padding:8px 20px;border-radius:6px;font-size:17px;font-weight:900;letter-spacing:0.5px;' + badgeStyle(m.severity) + '\">' + m.severity + '</span>'\n    + '</td>'\n    + '</tr>';\n}\n\nconst html =\n  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>'\n  + '<body style=\"margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif\">'\n  + '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" bgcolor=\"#f3f4f6\"><tr><td style=\"padding:28px 12px\">'\n  + '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-radius:8px;overflow:hidden;border:1px solid #d1d5db;background:#ffffff\">'\n\n  + '<tr><td style=\"padding:28px 36px;border-bottom:1px solid #e5e7eb\">'\n    + '<p style=\"margin:0;font-size:26px;font-weight:800;color:#111827\">' + now + '</p>'\n  + '</td></tr>'\n\n  + '<tr><td>'\n    + '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>'\n      + '<td width=\"25%\" style=\"padding:22px 0;text-align:center;border-right:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb\">'\n        + '<p style=\"margin:0 0 8px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.6px\">Total</p>'\n        + '<p style=\"margin:0;font-size:36px;font-weight:900;color:#111827\">' + vmCount + '</p>'\n      + '</td>'\n      + '<td width=\"25%\" style=\"padding:22px 0;text-align:center;border-right:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb\">'\n        + '<p style=\"margin:0 0 8px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.6px\">Critical</p>'\n        + '<p style=\"margin:0;font-size:36px;font-weight:900;color:' + (critCount > 0 ? '#b91c1c' : '#9ca3af') + '\">' + critCount + '</p>'\n      + '</td>'\n      + '<td width=\"25%\" style=\"padding:22px 0;text-align:center;border-right:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb\">'\n        + '<p style=\"margin:0 0 8px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.6px\">Warning</p>'\n        + '<p style=\"margin:0;font-size:36px;font-weight:900;color:' + (warnCount > 0 ? '#c2410c' : '#9ca3af') + '\">' + warnCount + '</p>'\n      + '</td>'\n      + '<td width=\"25%\" style=\"padding:22px 0;text-align:center;border-bottom:1px solid #e5e7eb\">'\n        + '<p style=\"margin:0 0 8px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.6px\">OK</p>'\n        + '<p style=\"margin:0;font-size:36px;font-weight:900;color:' + (okCount === vmCount ? '#15803d' : '#9ca3af') + '\">' + okCount + '</p>'\n      + '</td>'\n    + '</tr></table>'\n  + '</td></tr>'\n\n  + '<tr><td>'\n    + '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">'\n      + '<tr bgcolor=\"#f1f5f9\">'\n        + '<td width=\"28%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db\">Hostname</td>'\n        + '<td width=\"22%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db\">IP</td>'\n        + '<td width=\"18%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db\">RAM</td>'\n        + '<td width=\"18%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db\">Disk</td>'\n        + '<td width=\"14%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db;text-align:center\">Status</td>'\n      + '</tr>'\n      + rows\n    + '</table>'\n  + '</td></tr>'\n\n  + '</table></td></tr></table>'\n  + '</body></html>';\n\n// Telegram summary\nconst div = '──────────────────────';\nconst sevIcon = sev => ({ CRITICAL:'🟥', WARNING:'⚠️', NOTICE:'🟡', INFO:'🔵', OK:'✅' })[sev] || '✅';\nconst tgBar = pct => { const f = Math.min(Math.round(pct / 5), 20); return '█'.repeat(f) + '░'.repeat(20 - f); };\n\nlet tgLines = [\n  (critCount > 0 ? '🚨' : warnCount > 0 ? '⚠️' : '✅') + ' <b>VM DAILY CONSOLIDATED REPORT</b>',\n  div,\n  '📊 <b>' + vmCount + ' servers</b>  |  🔴 ' + critCount + ' critical  |  🟠 ' + warnCount + ' warning  |  🟢 ' + okCount + ' ok',\n  div\n];\nfor (const m of list) {\n  tgLines.push(sevIcon(m.severity) + ' <b>' + (m.hostname || m.vm_name) + '</b>  <code>' + m.primaryIp + '</code>');\n  tgLines.push('💾 RAM: <code>' + tgBar(m.ramUsedPct) + '</code> ' + m.ramUsedPct + '%');\n  tgLines.push('💿 Disk: <code>' + tgBar(m.diskUsedPct) + '</code> ' + m.diskUsedPct + '%');\n  tgLines.push('');\n}\ntgLines.push('<i>VM Metrics Reporter — ' + now + '</i>');\n\nconst subjectPrefix = critCount > 0 ? '[' + critCount + ' CRITICAL] ' : warnCount > 0 ? '[WARNING] ' : '[OK] ';\n\nreturn [{ json: {\n  noData: false,\n  emailTo: list[0].ownerEmail || '',\n  emailSubject: subjectPrefix + 'Daily VM Report — ' + vmCount + ' servers — ' + now,\n  htmlBody: html,\n  tgMessage: tgLines.join('\\n')\n}}];"
+        "jsCode": "const machines = {};\nfor (const row of $input.all()) {\n  try { const m = JSON.parse(row.json.data); machines[m.primaryIp || row.json.ip] = m; } catch(e) {}\n}\nconst ipList = Object.keys(machines);\nif (ipList.length === 0) return [{ json: { noData: true } }];\n\nconst list = ipList.map(ip => machines[ip]);\nconst SEV_ORDER = { CRITICAL:0, WARNING:1, NOTICE:2, INFO:3, OK:4 };\nlist.sort((a,b) => (SEV_ORDER[a.severity]??5)-(SEV_ORDER[b.severity]??5));\n\nconst now = new Date().toLocaleString('en-GB', {\n  weekday:'long', day:'2-digit', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'\n});\n\n// Emoji helpers\nconst fcp = String.fromCodePoint.bind(String);\nconst fcc = String.fromCharCode.bind(String);\nconst E = {\n  alert:  fcp(0x1F6A8), warn:   fcp(0x26A0)+fcp(0xFE0F), ok:     fcp(0x2705),\n  sqRed:  fcp(0x1F7E5), sqOrg:  fcp(0x1F7E7), sqGrn:  fcp(0x1F7E2),\n  win:    fcp(0x1FA9F), linux:  fcp(0x1F427),\n  ram:    fcp(0x1F4BE), disk:   fcp(0x1F4BF),\n  chart:  fcp(0x1F4CA), redCir: fcp(0x1F534), orgCir: fcp(0x1F7E0), grnCir: fcp(0x1F7E2),\n  full:   fcc(0x2588),  empty:  fcc(0x2591),  div:    fcc(0x2500).repeat(22)\n};\n\nconst vmCount   = list.length;\nconst critCount = list.filter(m => m.severity==='CRITICAL').length;\nconst warnCount = list.filter(m => m.severity==='WARNING').length;\nconst okCount   = list.filter(m => m.severity==='OK').length;\n\nfunction pctColor(pct) {\n  if(pct>=90) return '#b91c1c'; if(pct>=80) return '#c2410c';\n  if(pct>=70) return '#b45309'; if(pct>=60) return '#1d4ed8'; return '#15803d';\n}\nfunction barCell(pct, gb) {\n  const clr=pctColor(pct), w=Math.min(pct,100);\n  return '<td style=\"padding:16px 18px;vertical-align:middle\">'\n    +'<table cellpadding=\"0\" cellspacing=\"0\"><tr>'\n    +'<td style=\"padding-right:10px\">'\n      +'<p style=\"margin:0;font-size:16px;font-weight:800;color:'+clr+'\">'+pct+'%</p>'\n      +'<p style=\"margin:3px 0 0;font-size:12px;color:#9ca3af\">'+gb+' GB</p>'\n    +'</td>'\n    +'<td valign=\"middle\">'\n      +'<table cellpadding=\"0\" cellspacing=\"0\" width=\"64\"><tr>'\n        +'<td bgcolor=\"#e5e7eb\" style=\"border-radius:3px;height:6px;overflow:hidden;width:64px\">'\n          +'<table cellpadding=\"0\" cellspacing=\"0\" width=\"'+w+'%\"><tr>'\n            +'<td bgcolor=\"'+clr+'\" style=\"height:6px;border-radius:3px;font-size:1px\">&nbsp;</td>'\n          +'</tr></table>'\n        +'</td>'\n      +'</tr></table>'\n    +'</td>'\n    +'</tr></table>'\n  +'</td>';\n}\nfunction diskCell(m) {\n  if (m.os_type==='windows' && m.allMounts && m.allMounts.length>0) {\n    var html='<td style=\"padding:12px 18px;vertical-align:middle\">';\n    for(var d=0;d<m.allMounts.length;d++) {\n      var drive=m.allMounts[d], dpct=parseFloat(drive.usage_pct||0), dclr=pctColor(dpct), w=Math.min(dpct,100);\n      html+='<table cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:'+(d<m.allMounts.length-1?'10':'0')+'px\"><tr>'\n        +'<td style=\"padding-right:8px\">'\n          +'<p style=\"margin:0;font-size:11px;font-weight:700;color:#6b7280\">'+drive.mount+'</p>'\n          +'<p style=\"margin:1px 0 0;font-size:14px;font-weight:800;color:'+dclr+'\">'+dpct+'%</p>'\n          +'<p style=\"margin:1px 0 0;font-size:11px;color:#9ca3af\">'+parseFloat(drive.used_gb||0).toFixed(1)+' GB</p>'\n        +'</td>'\n        +'<td valign=\"bottom\">'\n          +'<table cellpadding=\"0\" cellspacing=\"0\" width=\"56\"><tr>'\n            +'<td bgcolor=\"#e5e7eb\" style=\"border-radius:3px;height:5px;overflow:hidden;width:56px\">'\n              +'<table cellpadding=\"0\" cellspacing=\"0\" width=\"'+w+'%\"><tr>'\n                +'<td bgcolor=\"'+dclr+'\" style=\"height:5px;border-radius:3px;font-size:1px\">&nbsp;</td>'\n              +'</tr></table>'\n            +'</td>'\n          +'</tr></table>'\n        +'</td>'\n        +'</tr></table>';\n    }\n    return html+'</td>';\n  }\n  return barCell(m.diskUsedPct, m.diskUsedGb);\n}\nfunction badgeStyle(sev) {\n  if(sev==='CRITICAL') return 'background:#fee2e2;color:#b91c1c';\n  if(sev==='WARNING')  return 'background:#ffedd5;color:#c2410c';\n  if(sev==='NOTICE')   return 'background:#fef3c7;color:#b45309';\n  if(sev==='INFO')     return 'background:#dbeafe;color:#1d4ed8';\n  return 'background:#dcfce7;color:#15803d';\n}\nfunction rowBg(sev,index) {\n  if(index%2!==0) return '#fafafa';\n  if(sev==='CRITICAL') return '#fff5f5';\n  if(sev==='WARNING')  return '#fffbf5';\n  return '#ffffff';\n}\n\nlet rows='';\nfor(let i=0;i<list.length;i++) {\n  const m=list[i];\n  const osIcon  = m.os_type==='windows' ? '&#129695;' : '&#128039;';\n  const osLabel = m.os_type==='windows' ? 'Windows' : 'Linux';\n  rows+=\n    '<tr bgcolor=\"'+rowBg(m.severity,i)+'\">'\n    +'<td style=\"padding:16px 18px;vertical-align:middle\">'\n      +'<p style=\"margin:0;font-size:16px;font-weight:800;color:#111827\">'+(m.hostname||m.vm_name)+'</p>'\n      +'<p style=\"margin:4px 0 0;font-size:11px;color:#6b7280\">'+osIcon+' '+osLabel+'</p>'\n    +'</td>'\n    +'<td style=\"padding:16px 18px;vertical-align:middle\">'\n      +'<p style=\"margin:0;font-size:15px;font-family:monospace;color:#4b5563\">'+m.primaryIp+'</p>'\n    +'</td>'\n    +barCell(m.ramUsedPct, m.ramUsedGb)\n    +diskCell(m)\n    +'<td style=\"padding:16px 18px;vertical-align:middle;text-align:center\">'\n      +'<span style=\"display:inline-block;padding:8px 20px;border-radius:6px;font-size:17px;font-weight:900;letter-spacing:0.5px;'+badgeStyle(m.severity)+'\">'+m.severity+'</span>'\n    +'</td>'\n    +'</tr>';\n}\n\nconst html=\n  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>'\n  +'<body style=\"margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif\">'\n  +'<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" bgcolor=\"#f3f4f6\"><tr><td style=\"padding:28px 12px\">'\n  +'<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-radius:8px;overflow:hidden;border:1px solid #d1d5db;background:#ffffff\">'\n  +'<tr><td style=\"padding:28px 36px;border-bottom:1px solid #e5e7eb\">'\n    +'<p style=\"margin:0;font-size:26px;font-weight:800;color:#111827\">'+now+'</p>'\n  +'</td></tr>'\n  +'<tr><td>'\n    +'<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>'\n      +'<td width=\"25%\" style=\"padding:22px 0;text-align:center;border-right:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb\">'\n        +'<p style=\"margin:0 0 8px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.6px\">Total</p>'\n        +'<p style=\"margin:0;font-size:36px;font-weight:900;color:#111827\">'+vmCount+'</p>'\n      +'</td>'\n      +'<td width=\"25%\" style=\"padding:22px 0;text-align:center;border-right:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb\">'\n        +'<p style=\"margin:0 0 8px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.6px\">Critical</p>'\n        +'<p style=\"margin:0;font-size:36px;font-weight:900;color:'+(critCount>0?'#b91c1c':'#9ca3af')+'\">'+critCount+'</p>'\n      +'</td>'\n      +'<td width=\"25%\" style=\"padding:22px 0;text-align:center;border-right:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb\">'\n        +'<p style=\"margin:0 0 8px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.6px\">Warning</p>'\n        +'<p style=\"margin:0;font-size:36px;font-weight:900;color:'+(warnCount>0?'#c2410c':'#9ca3af')+'\">'+warnCount+'</p>'\n      +'</td>'\n      +'<td width=\"25%\" style=\"padding:22px 0;text-align:center;border-bottom:1px solid #e5e7eb\">'\n        +'<p style=\"margin:0 0 8px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.6px\">OK</p>'\n        +'<p style=\"margin:0;font-size:36px;font-weight:900;color:'+(okCount===vmCount?'#15803d':'#9ca3af')+'\">'+okCount+'</p>'\n      +'</td>'\n    +'</tr></table>'\n  +'</td></tr>'\n  +'<tr><td>'\n    +'<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">'\n      +'<tr bgcolor=\"#f1f5f9\">'\n        +'<td width=\"26%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db\">Hostname</td>'\n        +'<td width=\"20%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db\">IP</td>'\n        +'<td width=\"18%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db\">RAM</td>'\n        +'<td width=\"22%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db\">Disk</td>'\n        +'<td width=\"14%\" style=\"padding:14px 18px;font-size:14px;font-weight:700;color:#374151;text-transform:uppercase;border-bottom:2px solid #d1d5db;text-align:center\">Status</td>'\n      +'</tr>'\n      +rows\n    +'</table>'\n  +'</td></tr>'\n  +'</table></td></tr></table>'\n  +'</body></html>';\n\n// Telegram\nconst tgBar = pct => { const f=Math.min(Math.round(pct/5),20); return E.full.repeat(f)+E.empty.repeat(20-f); };\nconst sevIcon = sev => ({CRITICAL:E.sqRed, WARNING:E.warn, NOTICE:E.sqGrn, INFO:E.sqGrn, OK:E.ok})[sev]||E.ok;\n\nlet tgLines = [\n  (critCount>0?E.alert:warnCount>0?E.warn:E.ok)+' <b>VM DAILY CONSOLIDATED REPORT</b>',\n  E.div,\n  E.chart+' <b>'+vmCount+' servers</b>  |  '+E.redCir+' '+critCount+' critical  |  '+E.orgCir+' '+warnCount+' warning  |  '+E.grnCir+' '+okCount+' ok',\n  E.div\n];\nfor(const m of list) {\n  const osIcon = m.os_type==='windows' ? E.win : E.linux;\n  tgLines.push(sevIcon(m.severity)+' <b>'+(m.hostname||m.vm_name)+'</b>  <code>'+m.primaryIp+'</code>  '+osIcon);\n  tgLines.push(E.ram+' RAM: <code>'+tgBar(m.ramUsedPct)+'</code> '+m.ramUsedPct+'%');\n  if(m.os_type==='windows' && m.allMounts && m.allMounts.length>0) {\n    for(const drive of m.allMounts) {\n      const dpct=parseFloat(drive.usage_pct||0);\n      tgLines.push(E.disk+' '+drive.mount+': <code>'+tgBar(dpct)+'</code> '+dpct+'%');\n    }\n  } else {\n    tgLines.push(E.disk+' Disk: <code>'+tgBar(m.diskUsedPct)+'</code> '+m.diskUsedPct+'%');\n  }\n  tgLines.push('');\n}\ntgLines.push('<i>VM Metrics Reporter \\u2014 '+now+'</i>');\n\nconst subjectPrefix = critCount>0?'['+critCount+' CRITICAL] ':warnCount>0?'[WARNING] ':'[OK] ';\nreturn [{ json: {\n  noData: false,\n  emailTo: list[0].ownerEmail||'',\n  emailSubject: subjectPrefix+'Daily VM Report \\u2014 '+vmCount+' servers \\u2014 '+now,\n  htmlBody: html,\n  tgMessage: tgLines.join('\\n')\n}}];"
       },
-      "id": "b27144b4-d4e1-46db-a8f9-bdab4d2f511c",
+      "id": "adf406d0-ff37-448b-9dbd-2b7352418a70",
       "name": "Build Consolidated Report",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1792,
-        1776
+        1600,
+        1424
       ]
     },
     {
@@ -258,38 +263,38 @@
         },
         "options": {}
       },
-      "id": "1cf90c2d-4f6b-44d2-a978-40ab5ec1a5fa",
+      "id": "b0e14bd6-18f1-4f8e-afd6-a1b49d551298",
       "name": "Has Data?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        2016,
-        1776
+        1824,
+        1424
       ]
     },
     {
       "parameters": {
         "fromEmail": "coren8n@omneia.net",
-        "toEmail": "ammar.aleessa@alkafeelomnnea.com,qasim.l.ghalib@alkafeelomnnea.com,ali.a.abbas@alkafeelomnnea.com,ali.m.mahdi@alkafeelomnnea.com",
+        "toEmail": "ali.m.mahdi@alkafeelomnnea.com",
         "subject": "={{ $json.emailSubject }}",
         "html": "={{ $json.htmlBody }}",
         "options": {
           "appendAttribution": false
         }
       },
-      "id": "31e50be4-d7d7-4cc7-baca-6ea97cb60e2b",
+      "id": "ddf9331e-f2ce-4e07-a630-d7d7db6641ce",
       "name": "Send Daily Report Email",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        2240,
-        1680
+        2048,
+        1328
       ],
       "webhookId": "2bbf6381-99e1-4805-8f59-331f3a0d1db3",
       "credentials": {
         "smtp": {
-          "id": "n7BEG6Zk1100LE0l",
-          "name": "smtp-coren8n@omneia.net"
+          "id": "UNDz6cEeif5EQK68",
+          "name": "SMTP account"
         }
       }
     },
@@ -303,16 +308,21 @@
           "parse_mode": "HTML"
         }
       },
-      "id": "0a92ce16-7404-4a83-8f72-b7876a827dfd",
+      "id": "59109a2d-cb6e-47c8-aa03-a38a4f25fda0",
       "name": "Telegram Daily Report",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2240,
-        1872
+        2048,
+        1520
       ],
       "webhookId": "69a01727-7dd3-4010-9e1c-c69ecc823476",
-      "disabled": true
+      "credentials": {
+        "telegramApi": {
+          "id": "n1pmUJpCIrh5ZlQh",
+          "name": "Telegram account"
+        }
+      }
     },
     {
       "parameters": {
@@ -320,17 +330,17 @@
         "query": "DELETE FROM vm_machines;",
         "options": {}
       },
-      "id": "da4d556f-d45a-4766-8345-e74f37530291",
+      "id": "119877da-d4a3-449f-ba20-ba8aab54ee86",
       "name": "Clear VMs from MySQL",
       "type": "n8n-nodes-base.mySql",
       "typeVersion": 2.4,
       "position": [
-        2464,
-        1776
+        2272,
+        1424
       ],
       "credentials": {
         "mySql": {
-          "id": "S8nNClNKcq2PMiI8",
+          "id": "R6RgMD1RPQyGXUdG",
           "name": "MySQL account"
         }
       }
@@ -489,11 +499,11 @@
     "executionOrder": "v1",
     "availableInMCP": false
   },
-  "versionId": "540c4c15-95e7-402f-a664-16b7e061333d",
+  "versionId": "29301ec1-be1d-44b0-acba-24b993d8036a",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "e61c97ef642b56d7dea276bd7ad6717edb1c983ed09f6939c48db6adec0b4819"
   },
-  "id": "tq1eOTjZAGShmZaH",
+  "id": "NrTcjyDsWSPnX1bC",
   "tags": []
 }

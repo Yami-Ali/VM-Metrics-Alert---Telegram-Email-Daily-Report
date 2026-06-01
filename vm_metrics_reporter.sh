@@ -139,6 +139,15 @@ get_disk_tier_label() {
     echo "normal"
 }
 
+fmt_size() {
+    awk "BEGIN {
+        g = $1 + 0
+        if (g >= 1024) printf \"%.1f TB\", g/1024
+        else if (g >= 1) printf \"%.1f GB\", g
+        else printf \"%d MB\", int(g*1024+0.5)
+    }"
+}
+
 # Sets global SEND_DISK_PART="true"/"false" directly.
 # $1 = usage_pct, $2 = sanitized mount key (e.g. "root", "data", "backup")
 # Each mount gets its own independent state files: disk_tier_<key>_<threshold>
@@ -223,9 +232,9 @@ send_metrics() {
     RAM_FREE_GB=$(awk  "BEGIN {printf \"%.2f\", $RAM_FREE_MB/1024}")
 
     # ── Disk ─────────────────────────────────────────────────────
-    DISK_TOTAL_GB=$(timeout 10 df -BG / 2>/dev/null | awk 'NR==2 {gsub("G",""); print $2}')
-    DISK_USED_GB=$(timeout  10 df -BG / 2>/dev/null | awk 'NR==2 {gsub("G",""); print $3}')
-    DISK_FREE_GB=$(timeout  10 df -BG / 2>/dev/null | awk 'NR==2 {gsub("G",""); print $4}')
+    DISK_TOTAL_GB=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
+    DISK_USED_GB=$(timeout  10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $3/1024}')
+    DISK_FREE_GB=$(timeout  10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $4/1024}')
     DISK_USAGE_PCT=$(timeout 10 df / 2>/dev/null | awk 'NR==2 {print $5}' | tr -d '%')
 
     # Exclude: virtual/pseudo FSes, snap loop devices (always 100%, read-only squashfs)
@@ -233,14 +242,14 @@ send_metrics() {
 
     MOUNTS_JSON=""
     while IFS= read -r line; do
-        target=$(echo "$line" | awk '{print $6}')
-        size=$(echo "$line"   | awk '{gsub("G",""); print $2}')
-        used=$(echo "$line"   | awk '{gsub("G",""); print $3}')
-        avail=$(echo "$line"  | awk '{gsub("G",""); print $4}')
+        target=$(echo "$line" | awk '{print $1}')
+        size=$(echo "$line"   | awk '{gsub("M",""); printf "%.1f", $2/1024}')
+        used=$(echo "$line"   | awk '{gsub("M",""); printf "%.1f", $3/1024}')
+        avail=$(echo "$line"  | awk '{gsub("M",""); printf "%.1f", $4/1024}')
         pct=$(echo "$line"    | awk '{print $5}' | tr -d '%')
         entry="{\"mount\":\"$target\",\"total_gb\":$size,\"used_gb\":$used,\"free_gb\":$avail,\"usage_pct\":$pct}"
         MOUNTS_JSON="${MOUNTS_JSON:+$MOUNTS_JSON,}$entry"
-    done < <(timeout 10 df -BG 2>/dev/null | grep -vE "$_DF_FILTER")
+    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
 
     # ── Per-partition disk alert check ───────────────────────────
     DISK_INT=${DISK_USAGE_PCT%.*}; DISK_INT=${DISK_INT:-0}
@@ -251,11 +260,11 @@ send_metrics() {
 
     # Each mount checked independently — its own timer and state file
     while IFS= read -r _dfline; do
-        _mount=$(echo "$_dfline" | awk '{print $6}')
+        _mount=$(echo "$_dfline" | awk '{print $1}')
         _pct=$(echo "$_dfline"   | awk '{print $5}' | tr -d '%')
-        _used=$(echo "$_dfline"  | awk '{gsub("G",""); print $3}')
-        _free=$(echo "$_dfline"  | awk '{gsub("G",""); print $4}')
-        _total=$(echo "$_dfline" | awk '{gsub("G",""); print $2}')
+        _used=$(echo "$_dfline"  | awk '{gsub("M",""); printf "%.1f", $3/1024}')
+        _free=$(echo "$_dfline"  | awk '{gsub("M",""); printf "%.1f", $4/1024}')
+        _total=$(echo "$_dfline" | awk '{gsub("M",""); printf "%.1f", $2/1024}')
         [[ "$_pct" =~ ^[0-9]+$ ]] || continue
 
         # Sanitize mount path → safe state file key: / → root, /data → data, /var/log → var_log
@@ -275,11 +284,13 @@ send_metrics() {
             elif [ "$_pct" -ge 60 ]; then _sev="info"
             else                           _sev="ok"; fi
             _ival=$([ "$_interval" = "none" ] && echo 0 || { [ "$_interval" = "0" ] && echo 0 || echo "$_interval"; })
-            _entry="{\"type\":\"DISK\",\"mount\":\"$_mount\",\"message\":\"$_mount at ${_pct}% — ${_free}GB free of ${_total}GB\",\"severity\":\"$_sev\",\"tier\":\"$_tier_label\",\"alert_interval_hours\":$_ival}"
+            _free_fmt=$(fmt_size "$_free")
+            _total_fmt=$(fmt_size "$_total")
+            _entry="{\"type\":\"DISK\",\"mount\":\"$_mount\",\"message\":\"$_mount at ${_pct}% — ${_free_fmt} free of ${_total_fmt}\",\"severity\":\"$_sev\",\"tier\":\"$_tier_label\",\"alert_interval_hours\":$_ival}"
             DISK_ISSUES_JSON="${DISK_ISSUES_JSON:+$DISK_ISSUES_JSON,}$_entry"
             [ "$_pct" -gt "$MAX_DISK_PCT" ] && MAX_DISK_PCT=$_pct
         fi
-    done < <(timeout 10 df -BG 2>/dev/null | grep -vE "$_DF_FILTER")
+    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
 
     # --daily forces RAM send regardless of threshold or interval
     [ "$SKIP_INTERVAL_CHECK" = "true" ] && SEND_RAM="true"
@@ -325,7 +336,9 @@ send_metrics() {
         elif [ "$RAM_INT" -ge 70 ]; then RAM_SEV="notice"
         elif [ "$RAM_INT" -ge 60 ]; then RAM_SEV="info"
         else                              RAM_SEV="ok"; fi
-        RAM_ISSUE="{\"type\":\"RAM\",\"message\":\"RAM at ${RAM_USAGE_PCT}% — ${RAM_FREE_GB}GB free of ${RAM_TOTAL_GB}GB (${RAM_USED_MB}MB used / ${RAM_TOTAL_MB}MB total)\",\"severity\":\"$RAM_SEV\",\"tier\":\">80%\",\"alert_interval_hours\":$RAM_ALERT_INTERVAL}"
+        _ram_free_fmt=$(fmt_size "$RAM_FREE_GB")
+        _ram_total_fmt=$(fmt_size "$RAM_TOTAL_GB")
+        RAM_ISSUE="{\"type\":\"RAM\",\"message\":\"RAM at ${RAM_USAGE_PCT}% — ${_ram_free_fmt} free of ${_ram_total_fmt} (${RAM_USED_MB}MB used / ${RAM_TOTAL_MB}MB total)\",\"severity\":\"$RAM_SEV\",\"tier\":\">80%\",\"alert_interval_hours\":$RAM_ALERT_INTERVAL}"
         ISSUES_JSON="${ISSUES_JSON:+$ISSUES_JSON,}$RAM_ISSUE"
         [ "$RAM_INT" -gt "$MAX_PCT" ] && MAX_PCT=$RAM_INT
     fi

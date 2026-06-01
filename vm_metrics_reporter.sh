@@ -139,22 +139,23 @@ get_disk_tier_label() {
     echo "normal"
 }
 
-# Sets global SEND_DISK="true"/"false" directly.
-# Must NOT use echo for the result — this function is called directly
-# (not via $()) so any echo goes to stdout/log, not to a variable.
-should_send_disk_alert() {
+# Sets global SEND_DISK_PART="true"/"false" directly.
+# $1 = usage_pct, $2 = sanitized mount key (e.g. "root", "data", "backup")
+# Each mount gets its own independent state files: disk_tier_<key>_<threshold>
+should_send_partition_alert() {
     local pct=$1
+    local mount_key=$2
 
     # --daily bypasses all interval checks and always sends
-    if [ "$SKIP_INTERVAL_CHECK" = "true" ]; then SEND_DISK="true"; return; fi
+    if [ "$SKIP_INTERVAL_CHECK" = "true" ]; then SEND_DISK_PART="true"; return; fi
 
     local interval_hours
     interval_hours=$(get_disk_tier_interval "$pct")
 
-    # "none" means below all thresholds — no alert, clear old state
+    # "none" = below all thresholds — clear this mount's state files, no alert
     if [ "$interval_hours" = "none" ]; then
-        rm -f "$STATE_DIR"/disk_tier_* 2>/dev/null
-        SEND_DISK="false"; return
+        rm -f "$STATE_DIR"/disk_tier_${mount_key}_* 2>/dev/null
+        SEND_DISK_PART="false"; return
     fi
 
     local active_threshold=""
@@ -165,18 +166,19 @@ should_send_disk_alert() {
         fi
     done
 
+    # Clear state files for other tiers of THIS mount only
     for tier in $DISK_TIERS; do
         local t="${tier%%:*}"
-        [ "$t" != "$active_threshold" ] && rm -f "$STATE_DIR/disk_tier_${t}" 2>/dev/null
+        [ "$t" != "$active_threshold" ] && rm -f "$STATE_DIR/disk_tier_${mount_key}_${t}" 2>/dev/null
     done
 
-    local state_file="$STATE_DIR/disk_tier_${active_threshold}"
+    local state_file="$STATE_DIR/disk_tier_${mount_key}_${active_threshold}"
     local now_epoch; now_epoch=$(date +%s)
 
     if [ ! -f "$state_file" ]; then
         mkdir -p "$STATE_DIR"
         echo "$now_epoch" > "$state_file"
-        SEND_DISK="true"; return
+        SEND_DISK_PART="true"; return
     fi
 
     local last_sent; last_sent=$(cat "$state_file" 2>/dev/null || echo 0)
@@ -184,18 +186,18 @@ should_send_disk_alert() {
     # interval 0 = every minute (no hour-based throttle, always send)
     if [ "$interval_hours" -eq 0 ] 2>/dev/null; then
         echo "$now_epoch" > "$state_file"
-        SEND_DISK="true"; return
+        SEND_DISK_PART="true"; return
     fi
 
     local elapsed_hours=$(( (now_epoch - last_sent) / 3600 ))
 
     if [ "$elapsed_hours" -ge "$interval_hours" ]; then
         echo "$now_epoch" > "$state_file"
-        SEND_DISK="true"
+        SEND_DISK_PART="true"
     else
         local next_in=$(( interval_hours - elapsed_hours ))
-        log "⏭  Disk ${pct}% (tier: >=${active_threshold}%, every ${interval_hours}h) — next alert in ~${next_in}h"
-        SEND_DISK="false"
+        log "⏭  Disk [$mount_key] ${pct}% (tier: >=${active_threshold}%, every ${interval_hours}h) — next alert in ~${next_in}h"
+        SEND_DISK_PART="false"
     fi
 }
 
@@ -240,22 +242,44 @@ send_metrics() {
         MOUNTS_JSON="${MOUNTS_JSON:+$MOUNTS_JSON,}$entry"
     done < <(timeout 10 df -BG 2>/dev/null | grep -vE "$_DF_FILTER")
 
-    # ── Check disk tier ───────────────────────────────────────────
+    # ── Per-partition disk alert check ───────────────────────────
     DISK_INT=${DISK_USAGE_PCT%.*}; DISK_INT=${DISK_INT:-0}
-
-    # Worst disk % across ALL real mounts (excludes snap/loop/tmpfs)
-    WORST_DISK_INT=$(timeout 10 df -BG 2>/dev/null \
-        | grep -vE "$_DF_FILTER" \
-        | awk '{print $5}' | tr -d '%' | grep -E '^[0-9]+$' | sort -n | tail -1)
-    WORST_DISK_INT=${WORST_DISK_INT:-$DISK_INT}
-    DISK_INT=$WORST_DISK_INT   # alert on worst mount, not just root
-
-    DISK_INTERVAL=$(get_disk_tier_interval "$DISK_INT")
     SEND_DISK="false"
     SEND_RAM="false"
+    DISK_ISSUES_JSON=""
+    MAX_DISK_PCT=0
 
-    # Direct call — sets global SEND_DISK, no $() subshell
-    should_send_disk_alert "$DISK_INT"
+    # Each mount checked independently — its own timer and state file
+    while IFS= read -r _dfline; do
+        _mount=$(echo "$_dfline" | awk '{print $6}')
+        _pct=$(echo "$_dfline"   | awk '{print $5}' | tr -d '%')
+        _used=$(echo "$_dfline"  | awk '{gsub("G",""); print $3}')
+        _free=$(echo "$_dfline"  | awk '{gsub("G",""); print $4}')
+        _total=$(echo "$_dfline" | awk '{gsub("G",""); print $2}')
+        [[ "$_pct" =~ ^[0-9]+$ ]] || continue
+
+        # Sanitize mount path → safe state file key: / → root, /data → data, /var/log → var_log
+        _mount_key=$(echo "$_mount" | sed 's|^/$|root|; s|^/||; s|/|_|g')
+        [ -z "$_mount_key" ] && _mount_key="root"
+
+        SEND_DISK_PART="false"
+        should_send_partition_alert "$_pct" "$_mount_key"
+
+        if [ "$SEND_DISK_PART" = "true" ]; then
+            SEND_DISK="true"
+            _tier_label=$(get_disk_tier_label "$_pct")
+            _interval=$(get_disk_tier_interval "$_pct")
+            if   [ "$_pct" -ge 90 ]; then _sev="critical"
+            elif [ "$_pct" -ge 80 ]; then _sev="warning"
+            elif [ "$_pct" -ge 70 ]; then _sev="notice"
+            elif [ "$_pct" -ge 60 ]; then _sev="info"
+            else                           _sev="ok"; fi
+            _ival=$([ "$_interval" = "none" ] && echo 0 || { [ "$_interval" = "0" ] && echo 0 || echo "$_interval"; })
+            _entry="{\"type\":\"DISK\",\"mount\":\"$_mount\",\"message\":\"$_mount at ${_pct}% — ${_free}GB free of ${_total}GB\",\"severity\":\"$_sev\",\"tier\":\"$_tier_label\",\"alert_interval_hours\":$_ival}"
+            DISK_ISSUES_JSON="${DISK_ISSUES_JSON:+$DISK_ISSUES_JSON,}$_entry"
+            [ "$_pct" -gt "$MAX_DISK_PCT" ] && MAX_DISK_PCT=$_pct
+        fi
+    done < <(timeout 10 df -BG 2>/dev/null | grep -vE "$_DF_FILTER")
 
     # --daily forces RAM send regardless of threshold or interval
     [ "$SKIP_INTERVAL_CHECK" = "true" ] && SEND_RAM="true"
@@ -288,22 +312,11 @@ send_metrics() {
     fi
 
     # ── Build issues list ─────────────────────────────────────────
-    ISSUES_JSON=""
+    # Disk issues already built per-partition in the loop above
+    ISSUES_JSON="$DISK_ISSUES_JSON"
     HAS_ISSUES="false"
-    MAX_PCT=0
-
-    if [ "$SEND_DISK" = "true" ]; then
-        HAS_ISSUES="true"
-        DISK_TIER_LABEL=$(get_disk_tier_label "$DISK_INT")
-        if   [ "$DISK_INT" -ge 90 ]; then D_SEV="critical"
-        elif [ "$DISK_INT" -ge 80 ]; then D_SEV="warning"
-        elif [ "$DISK_INT" -ge 70 ]; then D_SEV="notice"
-        elif [ "$DISK_INT" -ge 60 ]; then D_SEV="info"
-        else                               D_SEV="ok"; fi
-        ALERT_INTERVAL_VAL=$([ "$DISK_INTERVAL" = "none" ] || [ "$DISK_INTERVAL" = "0" ] && echo 0 || echo "$DISK_INTERVAL")
-        ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"Disk at ${DISK_INT}% — ${DISK_FREE_GB}GB free of ${DISK_TOTAL_GB}GB (root: ${DISK_USAGE_PCT}%)\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER_LABEL\",\"alert_interval_hours\":$ALERT_INTERVAL_VAL}"
-        MAX_PCT=$WORST_DISK_INT
-    fi
+    MAX_PCT=$MAX_DISK_PCT
+    [ "$SEND_DISK" = "true" ] && HAS_ISSUES="true"
 
     if [ "$SEND_RAM" = "true" ]; then
         HAS_ISSUES="true"
@@ -365,7 +378,7 @@ send_metrics() {
 EOF
 )
 
-    log "🚨 Alert: $RESOLVED_NAME | Disk: ${DISK_INT}% (root: ${DISK_USAGE_PCT}%) | RAM: ${RAM_USAGE_PCT}% | Net: $NETWORK_VERSION | Owner: $OWNER_NAME | $SEVERITY_LABEL"
+    log "🚨 Alert: $RESOLVED_NAME | Disk worst: ${MAX_DISK_PCT}% (root: ${DISK_USAGE_PCT}%) | RAM: ${RAM_USAGE_PCT}% | Net: $NETWORK_VERSION | Owner: $OWNER_NAME | $SEVERITY_LABEL"
 
     HTTP_STATUS=$(curl -s -o /tmp/vm_metrics_resp.txt -w "%{http_code}" \
         -X POST "$N8N_WEBHOOK_URL" \

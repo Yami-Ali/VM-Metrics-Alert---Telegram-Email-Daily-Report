@@ -15,7 +15,7 @@ Pick the right command for your VM's OS, run it once, and follow the 4-step wiza
 > Requires: Ubuntu 20.04+ or Debian 10+ — run as **root** or with **sudo**
 
 ```bash
-bash <(curl -fsSL https://gist.github.com/Yami-Ali/de460e9b35a727e1257f08e93a90ce5b/raw/c089243fcae2ed1e2f4d7e1ac9aefb16ef43ce39/install.sh)
+bash <(curl -fsSL https://gist.githubusercontent.com/Yami-Ali/de460e9b35a727e1257f08e93a90ce5b/raw/c089243fcae2ed1e2f4d7e1ac9aefb16ef43ce39/install.sh)
 ```
 
 This command:

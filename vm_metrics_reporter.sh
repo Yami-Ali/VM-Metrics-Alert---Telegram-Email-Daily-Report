@@ -760,11 +760,6 @@ status() {
     R_USED_GB=$(awk  "BEGIN {printf \"%.2f\", $R_USED/1024}")
     R_FREE_GB=$(awk  "BEGIN {printf \"%.2f\", $R_FREE/1024}")
 
-    DISK_PCT=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
-    DISK_USAGE=$(df -h / | awk 'NR==2 {printf "%s used (%s free of %s)", $5, $4, $2}')
-    DISK_INTERVAL=$(get_disk_tier_interval "${DISK_PCT:-0}")
-    DISK_TIER=$(get_disk_tier_label "${DISK_PCT:-0}")
-
     echo "  --- Live Snapshot ---"
     echo "    VM Name:  $RESOLVED_NAME"
     echo "    IP:       ${PRIMARY_IP:-unknown}"
@@ -774,12 +769,24 @@ status() {
     else
         echo "    RAM Alert: ✅ OK (<=${RAM_ALERT_THRESHOLD}% — no alert)"
     fi
-    echo "    Disk (/): $DISK_USAGE"
-    if [ "$DISK_INTERVAL" != "none" ]; then
-        echo "    Disk Tier: $DISK_TIER → every $([ "$DISK_INTERVAL" = "0" ] && echo "1 minute" || echo "${DISK_INTERVAL}h")"
-    else
-        echo "    Disk Tier: ✅ OK (< 60% — no alert)"
-    fi
+    echo "    Drives:"
+    _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
+    while IFS= read -r _line; do
+        _mount=$(echo "$_line" | awk '{print $1}')
+        _pct=$(echo "$_line"   | awk '{print $5}' | tr -d '%')
+        _used=$(echo "$_line"  | awk '{gsub("M",""); printf "%.1f", $3/1024}')
+        _free=$(echo "$_line"  | awk '{gsub("M",""); printf "%.1f", $4/1024}')
+        _total=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $2/1024}')
+        [[ "$_pct" =~ ^[0-9]+$ ]] || continue
+        _intv=$(get_disk_tier_interval "$_pct")
+        _tier=$(get_disk_tier_label "$_pct")
+        if [ "$_intv" != "none" ]; then
+            _tier_str="$_tier → every $([ "$_intv" = "0" ] && echo "1 min" || echo "${_intv}h")"
+        else
+            _tier_str="✅ OK (< 60% — no alert)"
+        fi
+        echo "      $_mount  ${_pct}% used | ${_used}GB used / ${_total}GB total / ${_free}GB free | $_tier_str"
+    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
     echo "    Uptime:   $(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60); printf "%dd %dh %dm",d,h,m}' /proc/uptime)"
     echo ""
     echo "  --- Last Alert Times ---"
@@ -852,6 +859,27 @@ simulate() {
     elif [ "$MAX_PCT" -ge 70 ]; then SEV_LABEL="🟡 NOTICE";   SEVERITY="NOTICE"
     else                               SEV_LABEL="🔵 INFO";    SEVERITY="INFO"; fi
 
+    _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
+    _SIM_ROOT_TOTAL=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
+    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} * $DISK_PCT / 100}")
+    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} - ${_SIM_ROOT_USED:-0}}")
+    SIM_MOUNTS_JSON=""
+    while IFS= read -r _line; do
+        _mount=$(echo "$_line" | awk '{print $1}')
+        _pct_r=$(echo "$_line"  | awk '{print $5}' | tr -d '%')
+        _size=$(echo "$_line"   | awk '{gsub("M",""); printf "%.1f", $2/1024}')
+        _used_r=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $3/1024}')
+        _free_r=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $4/1024}')
+        [[ "$_pct_r" =~ ^[0-9]+$ ]] || continue
+        if [ "$_mount" = "/" ]; then
+            _entry="{\"mount\":\"/\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
+        else
+            _entry="{\"mount\":\"$_mount\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
+        fi
+        SIM_MOUNTS_JSON="${SIM_MOUNTS_JSON:+$SIM_MOUNTS_JSON,}$_entry"
+    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
+    [ -z "$SIM_MOUNTS_JSON" ] && SIM_MOUNTS_JSON="{\"mount\":\"/\",\"total_gb\":${_SIM_ROOT_TOTAL:-20},\"used_gb\":${_SIM_ROOT_USED:-17},\"free_gb\":${_SIM_ROOT_FREE:-3},\"usage_pct\":${DISK_PCT}}"
+
     PAYLOAD=$(cat <<SIMPAYLOAD
 {
   "vm_name": "$RESOLVED_NAME",
@@ -876,8 +904,8 @@ simulate() {
     "usage_pct": $RAM_PCT
   },
   "disk": {
-    "root": { "total_gb": 20, "used_gb": ${D_USED:-17}, "free_gb": ${D_FREE:-3}, "usage_pct": $DISK_PCT },
-    "all_mounts": [{"mount":"/","total_gb":20,"used_gb":${D_USED:-17},"free_gb":${D_FREE:-3},"usage_pct":$DISK_PCT}]
+    "root": { "total_gb": ${_SIM_ROOT_TOTAL:-20}, "used_gb": ${_SIM_ROOT_USED:-17}, "free_gb": ${_SIM_ROOT_FREE:-3}, "usage_pct": $DISK_PCT },
+    "all_mounts": [$SIM_MOUNTS_JSON]
   }
 }
 SIMPAYLOAD
@@ -942,6 +970,27 @@ simulate_daily() {
     elif [ "$MAX_PCT" -ge 70 ]; then SEV_LABEL="🟡 NOTICE";   SEVERITY="NOTICE"
     else                               SEV_LABEL="🔵 INFO";    SEVERITY="INFO"; fi
 
+    _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
+    _SIM_ROOT_TOTAL=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
+    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} * $DISK_PCT / 100}")
+    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} - ${_SIM_ROOT_USED:-0}}")
+    SIM_MOUNTS_JSON=""
+    while IFS= read -r _line; do
+        _mount=$(echo "$_line" | awk '{print $1}')
+        _pct_r=$(echo "$_line"  | awk '{print $5}' | tr -d '%')
+        _size=$(echo "$_line"   | awk '{gsub("M",""); printf "%.1f", $2/1024}')
+        _used_r=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $3/1024}')
+        _free_r=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $4/1024}')
+        [[ "$_pct_r" =~ ^[0-9]+$ ]] || continue
+        if [ "$_mount" = "/" ]; then
+            _entry="{\"mount\":\"/\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
+        else
+            _entry="{\"mount\":\"$_mount\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
+        fi
+        SIM_MOUNTS_JSON="${SIM_MOUNTS_JSON:+$SIM_MOUNTS_JSON,}$_entry"
+    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
+    [ -z "$SIM_MOUNTS_JSON" ] && SIM_MOUNTS_JSON="{\"mount\":\"/\",\"total_gb\":${_SIM_ROOT_TOTAL:-20},\"used_gb\":${_SIM_ROOT_USED:-11},\"free_gb\":${_SIM_ROOT_FREE:-9},\"usage_pct\":${DISK_PCT}}"
+
     PAYLOAD=$(cat <<SIMPAYLOAD
 {
   "vm_name": "$RESOLVED_NAME",
@@ -966,8 +1015,8 @@ simulate_daily() {
     "usage_pct": $RAM_PCT
   },
   "disk": {
-    "root": { "total_gb": 20, "used_gb": ${D_USED:-11}, "free_gb": ${D_FREE:-9}, "usage_pct": $DISK_PCT },
-    "all_mounts": [{"mount":"/","total_gb":20,"used_gb":${D_USED:-11},"free_gb":${D_FREE:-9},"usage_pct":$DISK_PCT}]
+    "root": { "total_gb": ${_SIM_ROOT_TOTAL:-20}, "used_gb": ${_SIM_ROOT_USED:-11}, "free_gb": ${_SIM_ROOT_FREE:-9}, "usage_pct": $DISK_PCT },
+    "all_mounts": [$SIM_MOUNTS_JSON]
   }
 }
 SIMPAYLOAD

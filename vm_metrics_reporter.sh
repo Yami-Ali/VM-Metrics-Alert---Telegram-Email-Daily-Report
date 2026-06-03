@@ -823,6 +823,10 @@ simulate() {
     HAS_ISSUES="false"
     MAX_PCT=0
 
+    _SIM_ROOT_TOTAL=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
+    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} * $DISK_PCT / 100}")
+    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} - ${_SIM_ROOT_USED:-0}}")
+
     if [ "$DISK_INTERVAL" != "none" ]; then
         HAS_ISSUES="true"
         if   [ "$DISK_PCT" -ge 90 ]; then D_SEV="critical"
@@ -830,10 +834,8 @@ simulate() {
         elif [ "$DISK_PCT" -ge 70 ]; then D_SEV="notice"
         elif [ "$DISK_PCT" -ge 60 ]; then D_SEV="info"
         else                               D_SEV="test"; fi
-        D_USED=$(( DISK_PCT * 20 / 100 ))
-        D_FREE=$(( 20 - D_USED ))
         SIM_INTERVAL_VAL=$([ "$DISK_INTERVAL" = "0" ] && echo 0 || echo "$DISK_INTERVAL")
-        ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"Disk at ${DISK_PCT}% — ${D_FREE}GB free of 20GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
+        ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"Disk at ${DISK_PCT}% — ${_SIM_ROOT_FREE}GB free of ${_SIM_ROOT_TOTAL}GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
         MAX_PCT=$DISK_PCT
     fi
 
@@ -860,21 +862,19 @@ simulate() {
     else                               SEV_LABEL="🔵 INFO";    SEVERITY="INFO"; fi
 
     _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
-    _SIM_ROOT_TOTAL=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
-    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} * $DISK_PCT / 100}")
-    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} - ${_SIM_ROOT_USED:-0}}")
     SIM_MOUNTS_JSON=""
     while IFS= read -r _line; do
-        _mount=$(echo "$_line" | awk '{print $1}')
-        _pct_r=$(echo "$_line"  | awk '{print $5}' | tr -d '%')
-        _size=$(echo "$_line"   | awk '{gsub("M",""); printf "%.1f", $2/1024}')
-        _used_r=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $3/1024}')
-        _free_r=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $4/1024}')
+        _device=$(echo "$_line"     | awk '{print $1}')
+        _mountpoint=$(echo "$_line" | awk '{print $6}')
+        _pct_r=$(echo "$_line"      | awk '{print $5}' | tr -d '%')
+        _size=$(echo "$_line"       | awk '{gsub("M",""); printf "%.1f", $2/1024}')
+        _used_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $3/1024}')
+        _free_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $4/1024}')
         [[ "$_pct_r" =~ ^[0-9]+$ ]] || continue
-        if [ "$_mount" = "/" ]; then
-            _entry="{\"mount\":\"/\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
+        if [ "$_mountpoint" = "/" ]; then
+            _entry="{\"mount\":\"$_device\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else
-            _entry="{\"mount\":\"$_mount\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
+            _entry="{\"mount\":\"$_device\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
         fi
         SIM_MOUNTS_JSON="${SIM_MOUNTS_JSON:+$SIM_MOUNTS_JSON,}$_entry"
     done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
@@ -942,16 +942,18 @@ simulate_daily() {
     DISK_INTERVAL=$(get_disk_tier_interval "$DISK_PCT")
     DISK_TIER=$(get_disk_tier_label "$DISK_PCT")
 
+    _SIM_ROOT_TOTAL=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
+    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} * $DISK_PCT / 100}")
+    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} - ${_SIM_ROOT_USED:-0}}")
+
     # Daily always includes disk — even if below all alert tiers
     if   [ "$DISK_PCT" -ge 90 ]; then D_SEV="critical"
     elif [ "$DISK_PCT" -ge 80 ]; then D_SEV="warning"
     elif [ "$DISK_PCT" -ge 70 ]; then D_SEV="notice"
     elif [ "$DISK_PCT" -ge 60 ]; then D_SEV="info"
     else                               D_SEV="ok"; fi
-    D_USED=$(( DISK_PCT * 20 / 100 ))
-    D_FREE=$(( 20 - D_USED ))
     SIM_INTERVAL_VAL=$([ "$DISK_INTERVAL" = "none" ] && echo 0 || { [ "$DISK_INTERVAL" = "0" ] && echo 0 || echo "$DISK_INTERVAL"; })
-    ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"Disk at ${DISK_PCT}% — ${D_FREE}GB free of 20GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
+    ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"Disk at ${DISK_PCT}% — ${_SIM_ROOT_FREE}GB free of ${_SIM_ROOT_TOTAL}GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
     MAX_PCT=$DISK_PCT
 
     # Daily always includes RAM
@@ -971,21 +973,19 @@ simulate_daily() {
     else                               SEV_LABEL="🔵 INFO";    SEVERITY="INFO"; fi
 
     _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
-    _SIM_ROOT_TOTAL=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
-    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} * $DISK_PCT / 100}")
-    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} - ${_SIM_ROOT_USED:-0}}")
     SIM_MOUNTS_JSON=""
     while IFS= read -r _line; do
-        _mount=$(echo "$_line" | awk '{print $1}')
-        _pct_r=$(echo "$_line"  | awk '{print $5}' | tr -d '%')
-        _size=$(echo "$_line"   | awk '{gsub("M",""); printf "%.1f", $2/1024}')
-        _used_r=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $3/1024}')
-        _free_r=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $4/1024}')
+        _device=$(echo "$_line"     | awk '{print $1}')
+        _mountpoint=$(echo "$_line" | awk '{print $6}')
+        _pct_r=$(echo "$_line"      | awk '{print $5}' | tr -d '%')
+        _size=$(echo "$_line"       | awk '{gsub("M",""); printf "%.1f", $2/1024}')
+        _used_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $3/1024}')
+        _free_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $4/1024}')
         [[ "$_pct_r" =~ ^[0-9]+$ ]] || continue
-        if [ "$_mount" = "/" ]; then
-            _entry="{\"mount\":\"/\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
+        if [ "$_mountpoint" = "/" ]; then
+            _entry="{\"mount\":\"$_device\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else
-            _entry="{\"mount\":\"$_mount\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
+            _entry="{\"mount\":\"$_device\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
         fi
         SIM_MOUNTS_JSON="${SIM_MOUNTS_JSON:+$SIM_MOUNTS_JSON,}$_entry"
     done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")

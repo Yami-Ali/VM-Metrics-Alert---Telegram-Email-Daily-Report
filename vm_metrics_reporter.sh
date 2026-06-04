@@ -365,6 +365,7 @@ send_metrics() {
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue
         [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
         _tgb=$(awk "BEGIN {printf \"%.1f\", $_fst/1073741824}")
         _ugb=$(awk "BEGIN {printf \"%.1f\", $_us/1073741824}")
         _fgb=$(awk "BEGIN {printf \"%.1f\", $_av/1073741824}")
@@ -383,6 +384,7 @@ send_metrics() {
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue
         [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
 
         # State file key = partition name (sda1, sda4) or sanitised NFS mount
         _mount_key=$(echo "$_pn" | sed 's|^/||; s|/|_|g')
@@ -903,6 +905,7 @@ status() {
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue
         [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
         _intv=$(get_disk_tier_interval "$_pt")
         _tier=$(get_disk_tier_label "$_pt")
         if [ "$_intv" != "none" ]; then
@@ -1019,6 +1022,7 @@ simulate() {
     SIM_MOUNTS_JSON=""
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue; [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
         if [ "$_pn" = "$_SIM_ROOT_PART" ] && [[ "$_pty" == *ROOT* ]]; then
             _entry="{\"mount\":\"$_lb\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else
@@ -1144,6 +1148,7 @@ simulate_daily() {
     SIM_MOUNTS_JSON=""
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue; [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
         if [ "$_pn" = "$_SIM_ROOT_PART" ] && [[ "$_pty" == *ROOT* ]]; then
             _entry="{\"mount\":\"$_lb\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else

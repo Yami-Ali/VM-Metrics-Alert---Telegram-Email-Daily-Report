@@ -242,11 +242,12 @@ send_metrics() {
 
     MOUNTS_JSON=""
     while IFS= read -r line; do
-        target=$(echo "$line" | awk '{print $1}')
+        target=$(echo "$line" | awk '{print $6}')
         size=$(echo "$line"   | awk '{gsub("M",""); printf "%.1f", $2/1024}')
         used=$(echo "$line"   | awk '{gsub("M",""); printf "%.1f", $3/1024}')
         avail=$(echo "$line"  | awk '{gsub("M",""); printf "%.1f", $4/1024}')
         pct=$(echo "$line"    | awk '{print $5}' | tr -d '%')
+        [[ "$pct" =~ ^[0-9]+$ ]] || continue
         entry="{\"mount\":\"$target\",\"total_gb\":$size,\"used_gb\":$used,\"free_gb\":$avail,\"usage_pct\":$pct}"
         MOUNTS_JSON="${MOUNTS_JSON:+$MOUNTS_JSON,}$entry"
     done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
@@ -260,7 +261,7 @@ send_metrics() {
 
     # Each mount checked independently — its own timer and state file
     while IFS= read -r _dfline; do
-        _mount=$(echo "$_dfline" | awk '{print $1}')
+        _mount=$(echo "$_dfline" | awk '{print $6}')
         _pct=$(echo "$_dfline"   | awk '{print $5}' | tr -d '%')
         _used=$(echo "$_dfline"  | awk '{gsub("M",""); printf "%.1f", $3/1024}')
         _free=$(echo "$_dfline"  | awk '{gsub("M",""); printf "%.1f", $4/1024}')
@@ -769,7 +770,12 @@ status() {
     else
         echo "    RAM Alert: ✅ OK (<=${RAM_ALERT_THRESHOLD}% — no alert)"
     fi
-    echo "    Drives:"
+    echo "    Drives — physical layout (lsblk):"
+    while IFS= read -r _lline; do
+        echo "      $_lline"
+    done < <(lsblk -o NAME,SIZE,TYPE,MOUNTPOINT 2>/dev/null)
+    echo ""
+    echo "    Drives — alert status (df):"
     _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
     while IFS= read -r _line; do
         _mount=$(echo "$_line" | awk '{print $1}')
@@ -872,9 +878,9 @@ simulate() {
         _free_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $4/1024}')
         [[ "$_pct_r" =~ ^[0-9]+$ ]] || continue
         if [ "$_mountpoint" = "/" ]; then
-            _entry="{\"mount\":\"$_device\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
+            _entry="{\"mount\":\"$_mountpoint\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else
-            _entry="{\"mount\":\"$_device\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
+            _entry="{\"mount\":\"$_mountpoint\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
         fi
         SIM_MOUNTS_JSON="${SIM_MOUNTS_JSON:+$SIM_MOUNTS_JSON,}$_entry"
     done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
@@ -983,9 +989,9 @@ simulate_daily() {
         _free_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $4/1024}')
         [[ "$_pct_r" =~ ^[0-9]+$ ]] || continue
         if [ "$_mountpoint" = "/" ]; then
-            _entry="{\"mount\":\"$_device\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
+            _entry="{\"mount\":\"$_mountpoint\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else
-            _entry="{\"mount\":\"$_device\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
+            _entry="{\"mount\":\"$_mountpoint\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
         fi
         SIM_MOUNTS_JSON="${SIM_MOUNTS_JSON:+$SIM_MOUNTS_JSON,}$_entry"
     done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")

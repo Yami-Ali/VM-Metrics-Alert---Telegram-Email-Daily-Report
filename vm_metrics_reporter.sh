@@ -211,6 +211,121 @@ should_send_partition_alert() {
 }
 
 # ─────────────────────────────────────────────────────────────────
+# Collect reportable disk entries.
+# Output format (one line per entry):
+#   PNAME|DISK|FS_TOTAL_B|AVAIL_B|USED_B|PCT|LABEL|WORST_MOUNT|PTYPE
+#
+#   PTYPE values:
+#     LVM_ROOT   — LVM container whose LVs include /
+#     LVM        — LVM container (no / inside)
+#     DIRECT_ROOT — directly-mounted partition at /
+#     DIRECT     — directly-mounted partition elsewhere
+#     NET        — NFS / CIFS network mount
+#
+# For LVM containers: FS_TOTAL_B, AVAIL_B, USED_B are sums across all LVs.
+# Falls back to df -BM if lsblk / python3 unavailable.
+# NFS/CIFS mounts from df are always appended (lsblk never sees them).
+_collect_partitions() {
+    local _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
+
+    # ── Helper: df-BM fallback (used when lsblk/python3 unavailable) ──
+    _cp_df_fallback() {
+        while IFS= read -r _line; do
+            local _dev _mp _sz _us _av _pt _ptype
+            _dev=$(echo "$_line" | awk '{print $1}')
+            _mp=$(echo "$_line"  | awk '{print $6}')
+            _sz=$(echo "$_line"  | awk '{gsub("M",""); printf "%.0f", $2*1048576}')
+            _us=$(echo "$_line"  | awk '{gsub("M",""); printf "%.0f", $3*1048576}')
+            _av=$(echo "$_line"  | awk '{gsub("M",""); printf "%.0f", $4*1048576}')
+            _pt=$(echo "$_line"  | awk '{print $5}' | tr -d '%')
+            [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+            _ptype="DIRECT"; [ "$_mp" = "/" ] && _ptype="DIRECT_ROOT"
+            echo "$_dev|disk|$((_sz))|$((_av))|$((_us))|$_pt|$_mp|$_mp|$_ptype"
+        done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
+    }
+
+    if ! command -v python3 &>/dev/null; then
+        _cp_df_fallback; return
+    fi
+
+    local _JSON
+    _JSON=$(timeout 10 lsblk -b --json -o NAME,SIZE,FSAVAIL,FSUSED,TYPE,MOUNTPOINT 2>/dev/null)
+    if [ -z "$_JSON" ]; then
+        _cp_df_fallback; return
+    fi
+
+    # ── Physical block devices via lsblk ──
+    echo "$_JSON" | python3 -c "
+import json, sys
+
+def iv(v):
+    try: return int(v) if v else 0
+    except: return 0
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+
+for disk in data.get('blockdevices', []):
+    dn = disk.get('name','')
+    if disk.get('type') != 'disk': continue
+    if dn.startswith('loop') or dn[:2] == 'sr': continue
+
+    for part in disk.get('children', []):
+        pt  = part.get('type','')
+        if pt not in ('part','lvm','md'): continue
+
+        pn  = part.get('name','')
+        ps  = iv(part.get('size'))
+        pa  = iv(part.get('fsavail'))
+        pu  = iv(part.get('fsused'))
+        pm  = (part.get('mountpoint') or '').strip()
+        if pm in ('[SWAP]','SWAP'): pm = ''
+
+        kids = [c for c in part.get('children', [])
+                if c.get('type') in ('lvm','part','md')]
+
+        if kids:
+            ta = tu = wp = 0; wm = ''; has_root = False
+            for lv in kids:
+                la = iv(lv.get('fsavail')); lu = iv(lv.get('fsused'))
+                lm = (lv.get('mountpoint') or '').strip()
+                if lm in ('[SWAP]','SWAP',''): continue
+                if lm == '/': has_root = True
+                ta += la; tu += lu
+                tf2 = la + lu
+                if tf2 > 0:
+                    lp = lu * 100 // tf2
+                    if lp > wp: wp = lp; wm = lm
+            tf = ta + tu
+            pct = tu * 100 // tf if tf > 0 else 0
+            ptype = 'LVM_ROOT' if has_root else 'LVM'
+            print(f'{pn}|{dn}|{tf}|{ta}|{tu}|{pct}|{pn}|{wm}|{ptype}')
+        elif pa > 0 or pu > 0:
+            tf = pa + pu
+            pct = pu * 100 // tf if tf > 0 else 0
+            lb = pm if pm else pn
+            ptype = 'DIRECT_ROOT' if pm == '/' else 'DIRECT'
+            print(f'{pn}|{dn}|{tf}|{pa}|{pu}|{pct}|{lb}|{lb}|{ptype}')
+" 2>/dev/null || { _cp_df_fallback; return; }
+
+    # ── Network mounts (NFS/CIFS) — lsblk never sees these ──
+    while IFS= read -r _line; do
+        local _dev _mp _sz _us _av _pt
+        _dev=$(echo "$_line" | awk '{print $1}')
+        [[ "$_dev" == *:* ]] || [[ "$_dev" == //* ]] || continue
+        _mp=$(echo "$_line"  | awk '{print $6}')
+        _sz=$(echo "$_line"  | awk '{gsub("M",""); printf "%.0f", $2*1048576}')
+        _us=$(echo "$_line"  | awk '{gsub("M",""); printf "%.0f", $3*1048576}')
+        _av=$(echo "$_line"  | awk '{gsub("M",""); printf "%.0f", $4*1048576}')
+        _pt=$(echo "$_line"  | awk '{print $5}' | tr -d '%')
+        [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        echo "$_mp|net|$((_sz))|$((_av))|$((_us))|$_pt|$_mp|$_mp|NET"
+    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
+}
+
+# ─────────────────────────────────────────────────────────────────
 send_metrics() {
 
     TIMESTAMP=$(get_timestamp)
@@ -231,26 +346,31 @@ send_metrics() {
     RAM_USED_GB=$(awk  "BEGIN {printf \"%.2f\", $RAM_USED_MB/1024}")
     RAM_FREE_GB=$(awk  "BEGIN {printf \"%.2f\", $RAM_FREE_MB/1024}")
 
-    # ── Disk ─────────────────────────────────────────────────────
-    DISK_TOTAL_GB=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
-    DISK_USED_GB=$(timeout  10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $3/1024}')
-    DISK_FREE_GB=$(timeout  10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $4/1024}')
-    DISK_USAGE_PCT=$(timeout 10 df / 2>/dev/null | awk 'NR==2 {print $5}' | tr -d '%')
+    # ── Disk — collect physical partitions (lsblk) + NFS mounts ─────
+    _PARTS_DATA=$(_collect_partitions)
 
-    # Exclude: virtual/pseudo FSes, snap loop devices (always 100%, read-only squashfs)
-    _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
+    # Populate disk.root from the root partition (LVM_ROOT or DIRECT_ROOT)
+    DISK_TOTAL_GB="0.0"; DISK_USED_GB="0.0"; DISK_FREE_GB="0.0"; DISK_USAGE_PCT=0
+    while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
+        [[ "$_pty" == *ROOT* ]] || continue
+        DISK_TOTAL_GB=$(awk "BEGIN {printf \"%.1f\", $_fst/1073741824}")
+        DISK_USED_GB=$(awk  "BEGIN {printf \"%.1f\", $_us/1073741824}")
+        DISK_FREE_GB=$(awk  "BEGIN {printf \"%.1f\", $_av/1073741824}")
+        DISK_USAGE_PCT="$_pt"
+        break
+    done <<< "$_PARTS_DATA"
 
+    # Build all_mounts JSON array
     MOUNTS_JSON=""
-    while IFS= read -r line; do
-        target=$(echo "$line" | awk '{print $6}')
-        size=$(echo "$line"   | awk '{gsub("M",""); printf "%.1f", $2/1024}')
-        used=$(echo "$line"   | awk '{gsub("M",""); printf "%.1f", $3/1024}')
-        avail=$(echo "$line"  | awk '{gsub("M",""); printf "%.1f", $4/1024}')
-        pct=$(echo "$line"    | awk '{print $5}' | tr -d '%')
-        [[ "$pct" =~ ^[0-9]+$ ]] || continue
-        entry="{\"mount\":\"$target\",\"total_gb\":$size,\"used_gb\":$used,\"free_gb\":$avail,\"usage_pct\":$pct}"
+    while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
+        [ -z "$_pn" ] && continue
+        [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        _tgb=$(awk "BEGIN {printf \"%.1f\", $_fst/1073741824}")
+        _ugb=$(awk "BEGIN {printf \"%.1f\", $_us/1073741824}")
+        _fgb=$(awk "BEGIN {printf \"%.1f\", $_av/1073741824}")
+        entry="{\"mount\":\"$_lb\",\"total_gb\":$_tgb,\"used_gb\":$_ugb,\"free_gb\":$_fgb,\"usage_pct\":$_pt}"
         MOUNTS_JSON="${MOUNTS_JSON:+$MOUNTS_JSON,}$entry"
-    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
+    done <<< "$_PARTS_DATA"
 
     # ── Per-partition disk alert check ───────────────────────────
     DISK_INT=${DISK_USAGE_PCT%.*}; DISK_INT=${DISK_INT:-0}
@@ -259,39 +379,43 @@ send_metrics() {
     DISK_ISSUES_JSON=""
     MAX_DISK_PCT=0
 
-    # Each mount checked independently — its own timer and state file
-    while IFS= read -r _dfline; do
-        _mount=$(echo "$_dfline" | awk '{print $6}')
-        _pct=$(echo "$_dfline"   | awk '{print $5}' | tr -d '%')
-        _used=$(echo "$_dfline"  | awk '{gsub("M",""); printf "%.1f", $3/1024}')
-        _free=$(echo "$_dfline"  | awk '{gsub("M",""); printf "%.1f", $4/1024}')
-        _total=$(echo "$_dfline" | awk '{gsub("M",""); printf "%.1f", $2/1024}')
-        [[ "$_pct" =~ ^[0-9]+$ ]] || continue
+    # Each physical partition checked independently — its own state file keyed by partition name
+    while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
+        [ -z "$_pn" ] && continue
+        [[ "$_pt" =~ ^[0-9]+$ ]] || continue
 
-        # Sanitize mount path → safe state file key: / → root, /data → data, /var/log → var_log
-        _mount_key=$(echo "$_mount" | sed 's|^/$|root|; s|^/||; s|/|_|g')
-        [ -z "$_mount_key" ] && _mount_key="root"
+        # State file key = partition name (sda1, sda4) or sanitised NFS mount
+        _mount_key=$(echo "$_pn" | sed 's|^/||; s|/|_|g')
+        [ -z "$_mount_key" ] && _mount_key="disk"
 
         SEND_DISK_PART="false"
-        should_send_partition_alert "$_pct" "$_mount_key"
+        should_send_partition_alert "$_pt" "$_mount_key"
 
         if [ "$SEND_DISK_PART" = "true" ]; then
             SEND_DISK="true"
-            _tier_label=$(get_disk_tier_label "$_pct")
-            _interval=$(get_disk_tier_interval "$_pct")
-            if   [ "$_pct" -ge 90 ]; then _sev="critical"
-            elif [ "$_pct" -ge 80 ]; then _sev="warning"
-            elif [ "$_pct" -ge 70 ]; then _sev="notice"
-            elif [ "$_pct" -ge 60 ]; then _sev="info"
-            else                           _sev="ok"; fi
+            _tier_label=$(get_disk_tier_label "$_pt")
+            _interval=$(get_disk_tier_interval "$_pt")
+            if   [ "$_pt" -ge 90 ]; then _sev="critical"
+            elif [ "$_pt" -ge 80 ]; then _sev="warning"
+            elif [ "$_pt" -ge 70 ]; then _sev="notice"
+            elif [ "$_pt" -ge 60 ]; then _sev="info"
+            else                          _sev="ok"; fi
             _ival=$([ "$_interval" = "none" ] && echo 0 || { [ "$_interval" = "0" ] && echo 0 || echo "$_interval"; })
-            _free_fmt=$(fmt_size "$_free")
-            _total_fmt=$(fmt_size "$_total")
-            _entry="{\"type\":\"DISK\",\"mount\":\"$_mount\",\"message\":\"$_mount at ${_pct}% — ${_free_fmt} free of ${_total_fmt}\",\"severity\":\"$_sev\",\"tier\":\"$_tier_label\",\"alert_interval_hours\":$_ival}"
+            _fgb=$(awk "BEGIN {printf \"%.1f\", $_av/1073741824}")
+            _tgb=$(awk "BEGIN {printf \"%.1f\", $_fst/1073741824}")
+            _free_fmt=$(fmt_size "$_fgb")
+            _total_fmt=$(fmt_size "$_tgb")
+            # Alert label: "sda4 → /usr" for LVM, mount/partition name for direct/NFS
+            if [[ "$_pty" == LVM* ]] && [ -n "$_wm" ]; then
+                _alert_lbl="${_pn} → ${_wm}"
+            else
+                _alert_lbl="$_lb"
+            fi
+            _entry="{\"type\":\"DISK\",\"mount\":\"$_pn\",\"message\":\"${_alert_lbl} at ${_pt}% — ${_free_fmt} free of ${_total_fmt}\",\"severity\":\"$_sev\",\"tier\":\"$_tier_label\",\"alert_interval_hours\":$_ival}"
             DISK_ISSUES_JSON="${DISK_ISSUES_JSON:+$DISK_ISSUES_JSON,}$_entry"
-            [ "$_pct" -gt "$MAX_DISK_PCT" ] && MAX_DISK_PCT=$_pct
+            [ "$_pt" -gt "$MAX_DISK_PCT" ] && MAX_DISK_PCT=$_pt
         fi
-    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
+    done <<< "$_PARTS_DATA"
 
     # --daily forces RAM send regardless of threshold or interval
     [ "$SKIP_INTERVAL_CHECK" = "true" ] && SEND_RAM="true"
@@ -775,24 +899,28 @@ status() {
         echo "      $_lline"
     done < <(lsblk -o NAME,SIZE,TYPE,MOUNTPOINT 2>/dev/null)
     echo ""
-    echo "    Drives — alert status (df):"
-    _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
-    while IFS= read -r _line; do
-        _mount=$(echo "$_line" | awk '{print $1}')
-        _pct=$(echo "$_line"   | awk '{print $5}' | tr -d '%')
-        _used=$(echo "$_line"  | awk '{gsub("M",""); printf "%.1f", $3/1024}')
-        _free=$(echo "$_line"  | awk '{gsub("M",""); printf "%.1f", $4/1024}')
-        _total=$(echo "$_line" | awk '{gsub("M",""); printf "%.1f", $2/1024}')
-        [[ "$_pct" =~ ^[0-9]+$ ]] || continue
-        _intv=$(get_disk_tier_interval "$_pct")
-        _tier=$(get_disk_tier_label "$_pct")
+    echo "    Drives — alert status:"
+    while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
+        [ -z "$_pn" ] && continue
+        [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        _intv=$(get_disk_tier_interval "$_pt")
+        _tier=$(get_disk_tier_label "$_pt")
         if [ "$_intv" != "none" ]; then
             _tier_str="$_tier → every $([ "$_intv" = "0" ] && echo "1 min" || echo "${_intv}h")"
         else
             _tier_str="✅ OK (< 60% — no alert)"
         fi
-        echo "      $_mount  ${_pct}% used | ${_used}GB used / ${_total}GB total / ${_free}GB free | $_tier_str"
-    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
+        _tgb=$(awk "BEGIN {printf \"%.1f\", $_fst/1073741824}")
+        _ugb=$(awk "BEGIN {printf \"%.1f\", $_us/1073741824}")
+        _fgb=$(awk "BEGIN {printf \"%.1f\", $_av/1073741824}")
+        # Show partition name + worst mount for LVM containers
+        if [[ "$_pty" == LVM* ]] && [ -n "$_wm" ]; then
+            _display_name="${_pn} (worst: ${_wm})"
+        else
+            _display_name="$_lb"
+        fi
+        echo "      $_display_name  ${_pt}% | ${_ugb}GB used / ${_tgb}GB total / ${_fgb}GB free | $_tier_str"
+    done < <(_collect_partitions)
     echo "    Uptime:   $(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60); printf "%dd %dh %dm",d,h,m}' /proc/uptime)"
     echo ""
     echo "  --- Last Alert Times ---"
@@ -829,9 +957,29 @@ simulate() {
     HAS_ISSUES="false"
     MAX_PCT=0
 
-    _SIM_ROOT_TOTAL=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
-    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} * $DISK_PCT / 100}")
-    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} - ${_SIM_ROOT_USED:-0}}")
+    # ── Collect real partition data; find root partition for override ──
+    _SIM_PARTS=$(_collect_partitions)
+    _SIM_ROOT_PART=""; _SIM_ROOT_FST_B=0; _SIM_ROOT_AVAIL_B=0; _SIM_ROOT_USED_B=0
+    _SIM_ROOT_WORST=""; _SIM_ROOT_PTY=""
+    while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
+        [[ "$_pty" == *ROOT* ]] || continue
+        _SIM_ROOT_PART="$_pn"; _SIM_ROOT_FST_B="$_fst"
+        _SIM_ROOT_AVAIL_B="$_av"; _SIM_ROOT_USED_B="$_us"
+        _SIM_ROOT_WORST="$_wm"; _SIM_ROOT_PTY="$_pty"
+        break
+    done <<< "$_SIM_PARTS"
+    # Compute simulated root sizes based on DISK_PCT% of real fs total
+    _SIM_ROOT_TOTAL=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_FST_B:-21474836480}/1073741824}")
+    _SIM_ROOT_USED_B_S=$(awk "BEGIN {printf \"%.0f\", ${_SIM_ROOT_FST_B:-21474836480}*$DISK_PCT/100}")
+    _SIM_ROOT_AVAIL_B_S=$(( ${_SIM_ROOT_FST_B:-21474836480} - ${_SIM_ROOT_USED_B_S:-0} ))
+    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_USED_B_S:-0}/1073741824}")
+    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_AVAIL_B_S:-0}/1073741824}")
+    # Alert label for root: "sda4 → /usr" or just partition/mount name
+    if [[ "$_SIM_ROOT_PTY" == LVM* ]] && [ -n "$_SIM_ROOT_WORST" ]; then
+        _SIM_ROOT_LABEL="${_SIM_ROOT_PART} → ${_SIM_ROOT_WORST}"
+    else
+        _SIM_ROOT_LABEL="${_SIM_ROOT_PART:-disk}"
+    fi
 
     if [ "$DISK_INTERVAL" != "none" ]; then
         HAS_ISSUES="true"
@@ -841,7 +989,7 @@ simulate() {
         elif [ "$DISK_PCT" -ge 60 ]; then D_SEV="info"
         else                               D_SEV="test"; fi
         SIM_INTERVAL_VAL=$([ "$DISK_INTERVAL" = "0" ] && echo 0 || echo "$DISK_INTERVAL")
-        ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"Disk at ${DISK_PCT}% — ${_SIM_ROOT_FREE}GB free of ${_SIM_ROOT_TOTAL}GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
+        ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"${_SIM_ROOT_LABEL} at ${DISK_PCT}% — ${_SIM_ROOT_FREE}GB free of ${_SIM_ROOT_TOTAL}GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
         MAX_PCT=$DISK_PCT
     fi
 
@@ -867,24 +1015,21 @@ simulate() {
     elif [ "$MAX_PCT" -ge 70 ]; then SEV_LABEL="🟡 NOTICE";   SEVERITY="NOTICE"
     else                               SEV_LABEL="🔵 INFO";    SEVERITY="INFO"; fi
 
-    _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
+    # Build SIM_MOUNTS_JSON — override root partition, keep all others real
     SIM_MOUNTS_JSON=""
-    while IFS= read -r _line; do
-        _device=$(echo "$_line"     | awk '{print $1}')
-        _mountpoint=$(echo "$_line" | awk '{print $6}')
-        _pct_r=$(echo "$_line"      | awk '{print $5}' | tr -d '%')
-        _size=$(echo "$_line"       | awk '{gsub("M",""); printf "%.1f", $2/1024}')
-        _used_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $3/1024}')
-        _free_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $4/1024}')
-        [[ "$_pct_r" =~ ^[0-9]+$ ]] || continue
-        if [ "$_mountpoint" = "/" ]; then
-            _entry="{\"mount\":\"$_mountpoint\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
+    while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
+        [ -z "$_pn" ] && continue; [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        if [ "$_pn" = "$_SIM_ROOT_PART" ] && [[ "$_pty" == *ROOT* ]]; then
+            _entry="{\"mount\":\"$_lb\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else
-            _entry="{\"mount\":\"$_mountpoint\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
+            _tgb=$(awk "BEGIN {printf \"%.1f\", $_fst/1073741824}")
+            _ugb=$(awk "BEGIN {printf \"%.1f\", $_us/1073741824}")
+            _fgb=$(awk "BEGIN {printf \"%.1f\", $_av/1073741824}")
+            _entry="{\"mount\":\"$_lb\",\"total_gb\":$_tgb,\"used_gb\":$_ugb,\"free_gb\":$_fgb,\"usage_pct\":$_pt}"
         fi
         SIM_MOUNTS_JSON="${SIM_MOUNTS_JSON:+$SIM_MOUNTS_JSON,}$_entry"
-    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
-    [ -z "$SIM_MOUNTS_JSON" ] && SIM_MOUNTS_JSON="{\"mount\":\"/\",\"total_gb\":${_SIM_ROOT_TOTAL:-20},\"used_gb\":${_SIM_ROOT_USED:-17},\"free_gb\":${_SIM_ROOT_FREE:-3},\"usage_pct\":${DISK_PCT}}"
+    done <<< "$_SIM_PARTS"
+    [ -z "$SIM_MOUNTS_JSON" ] && SIM_MOUNTS_JSON="{\"mount\":\"${_SIM_ROOT_PART:-disk}\",\"total_gb\":${_SIM_ROOT_TOTAL:-20},\"used_gb\":${_SIM_ROOT_USED:-17},\"free_gb\":${_SIM_ROOT_FREE:-3},\"usage_pct\":${DISK_PCT}}"
 
     PAYLOAD=$(cat <<SIMPAYLOAD
 {
@@ -948,9 +1093,26 @@ simulate_daily() {
     DISK_INTERVAL=$(get_disk_tier_interval "$DISK_PCT")
     DISK_TIER=$(get_disk_tier_label "$DISK_PCT")
 
-    _SIM_ROOT_TOTAL=$(timeout 10 df -BM / 2>/dev/null | awk 'NR==2 {gsub("M",""); printf "%.1f", $2/1024}')
-    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} * $DISK_PCT / 100}")
-    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_TOTAL:-20} - ${_SIM_ROOT_USED:-0}}")
+    # ── Collect real partition data; find root partition for override ──
+    _SIM_PARTS=$(_collect_partitions)
+    _SIM_ROOT_PART=""; _SIM_ROOT_FST_B=0
+    _SIM_ROOT_WORST=""; _SIM_ROOT_PTY=""
+    while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
+        [[ "$_pty" == *ROOT* ]] || continue
+        _SIM_ROOT_PART="$_pn"; _SIM_ROOT_FST_B="$_fst"
+        _SIM_ROOT_WORST="$_wm"; _SIM_ROOT_PTY="$_pty"
+        break
+    done <<< "$_SIM_PARTS"
+    _SIM_ROOT_TOTAL=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_FST_B:-21474836480}/1073741824}")
+    _SIM_ROOT_USED_B_S=$(awk "BEGIN {printf \"%.0f\", ${_SIM_ROOT_FST_B:-21474836480}*$DISK_PCT/100}")
+    _SIM_ROOT_AVAIL_B_S=$(( ${_SIM_ROOT_FST_B:-21474836480} - ${_SIM_ROOT_USED_B_S:-0} ))
+    _SIM_ROOT_USED=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_USED_B_S:-0}/1073741824}")
+    _SIM_ROOT_FREE=$(awk "BEGIN {printf \"%.1f\", ${_SIM_ROOT_AVAIL_B_S:-0}/1073741824}")
+    if [[ "$_SIM_ROOT_PTY" == LVM* ]] && [ -n "$_SIM_ROOT_WORST" ]; then
+        _SIM_ROOT_LABEL="${_SIM_ROOT_PART} → ${_SIM_ROOT_WORST}"
+    else
+        _SIM_ROOT_LABEL="${_SIM_ROOT_PART:-disk}"
+    fi
 
     # Daily always includes disk — even if below all alert tiers
     if   [ "$DISK_PCT" -ge 90 ]; then D_SEV="critical"
@@ -959,7 +1121,7 @@ simulate_daily() {
     elif [ "$DISK_PCT" -ge 60 ]; then D_SEV="info"
     else                               D_SEV="ok"; fi
     SIM_INTERVAL_VAL=$([ "$DISK_INTERVAL" = "none" ] && echo 0 || { [ "$DISK_INTERVAL" = "0" ] && echo 0 || echo "$DISK_INTERVAL"; })
-    ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"Disk at ${DISK_PCT}% — ${_SIM_ROOT_FREE}GB free of ${_SIM_ROOT_TOTAL}GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
+    ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"${_SIM_ROOT_LABEL} at ${DISK_PCT}% — ${_SIM_ROOT_FREE}GB free of ${_SIM_ROOT_TOTAL}GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
     MAX_PCT=$DISK_PCT
 
     # Daily always includes RAM
@@ -978,24 +1140,21 @@ simulate_daily() {
     elif [ "$MAX_PCT" -ge 70 ]; then SEV_LABEL="🟡 NOTICE";   SEVERITY="NOTICE"
     else                               SEV_LABEL="🔵 INFO";    SEVERITY="INFO"; fi
 
-    _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
+    # Build SIM_MOUNTS_JSON — override root partition, keep all others real
     SIM_MOUNTS_JSON=""
-    while IFS= read -r _line; do
-        _device=$(echo "$_line"     | awk '{print $1}')
-        _mountpoint=$(echo "$_line" | awk '{print $6}')
-        _pct_r=$(echo "$_line"      | awk '{print $5}' | tr -d '%')
-        _size=$(echo "$_line"       | awk '{gsub("M",""); printf "%.1f", $2/1024}')
-        _used_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $3/1024}')
-        _free_r=$(echo "$_line"     | awk '{gsub("M",""); printf "%.1f", $4/1024}')
-        [[ "$_pct_r" =~ ^[0-9]+$ ]] || continue
-        if [ "$_mountpoint" = "/" ]; then
-            _entry="{\"mount\":\"$_mountpoint\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
+    while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
+        [ -z "$_pn" ] && continue; [[ "$_pt" =~ ^[0-9]+$ ]] || continue
+        if [ "$_pn" = "$_SIM_ROOT_PART" ] && [[ "$_pty" == *ROOT* ]]; then
+            _entry="{\"mount\":\"$_lb\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else
-            _entry="{\"mount\":\"$_mountpoint\",\"total_gb\":${_size},\"used_gb\":${_used_r},\"free_gb\":${_free_r},\"usage_pct\":${_pct_r}}"
+            _tgb=$(awk "BEGIN {printf \"%.1f\", $_fst/1073741824}")
+            _ugb=$(awk "BEGIN {printf \"%.1f\", $_us/1073741824}")
+            _fgb=$(awk "BEGIN {printf \"%.1f\", $_av/1073741824}")
+            _entry="{\"mount\":\"$_lb\",\"total_gb\":$_tgb,\"used_gb\":$_ugb,\"free_gb\":$_fgb,\"usage_pct\":$_pt}"
         fi
         SIM_MOUNTS_JSON="${SIM_MOUNTS_JSON:+$SIM_MOUNTS_JSON,}$_entry"
-    done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
-    [ -z "$SIM_MOUNTS_JSON" ] && SIM_MOUNTS_JSON="{\"mount\":\"/\",\"total_gb\":${_SIM_ROOT_TOTAL:-20},\"used_gb\":${_SIM_ROOT_USED:-11},\"free_gb\":${_SIM_ROOT_FREE:-9},\"usage_pct\":${DISK_PCT}}"
+    done <<< "$_SIM_PARTS"
+    [ -z "$SIM_MOUNTS_JSON" ] && SIM_MOUNTS_JSON="{\"mount\":\"${_SIM_ROOT_PART:-disk}\",\"total_gb\":${_SIM_ROOT_TOTAL:-20},\"used_gb\":${_SIM_ROOT_USED:-11},\"free_gb\":${_SIM_ROOT_FREE:-9},\"usage_pct\":${DISK_PCT}}"
 
     PAYLOAD=$(cat <<SIMPAYLOAD
 {

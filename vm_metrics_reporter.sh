@@ -26,17 +26,17 @@
 #  Format: "Full Name:email@domain.com"
 # ================================================================
 USERS=(
-    "Ammar Alessa: ammar.aleessa@alkafeelomnnea.com",
-    "Ahmed Al-Fadhul: ahmed.m.alfadhel@alkafeelomnnea.com",
-    "Ali Alaa: ali.a.abbas@alkafeelomnnea.com",
-    "Qasim: qasim.l.ghalib@alkafeelomnnea.com",
-    "Ali Yami: ali.m.mahdi@alkafeelomnnea.com",
-    "Abbas Mohammad: abbas.m.hamza@alkafeelomnnea.com",
-    "Abdullah Raheem: abdullah.r.farhan@alkafeelomnnea.com",
-    "mohammed albaqir: mohammed.albaqir.mahdi@alkafeelomnnea.com",
-    "Mohamad Ali: mohammed.a.rahim@alkafeelomnnea.com",
-    "Hussein Adnan: hussain.adnan.a@alkafeelomnnea.com",
-    "Muhammad Nadhum: muhammad.n.hashim@alkafeelomnnea.com",
+    "Ammar Alessa: ammar.aleessa@alkafeelomnnea.com"
+    "Ahmed Al-Fadhul: ahmed.m.alfadhel@alkafeelomnnea.com"
+    "Ali Alaa: ali.a.abbas@alkafeelomnnea.com"
+    "Qasim: qasim.l.ghalib@alkafeelomnnea.com"
+    "Ali Yami: ali.m.mahdi@alkafeelomnnea.com"
+    "Abbas Mohammad: abbas.m.hamza@alkafeelomnnea.com"
+    "Abdullah Raheem: abdullah.r.farhan@alkafeelomnnea.com"
+    "mohammed albaqir: mohammed.albaqir.mahdi@alkafeelomnnea.com"
+    "Mohamad Ali: mohammed.a.rahim@alkafeelomnnea.com"
+    "Hussein Adnan: hussain.adnan.a@alkafeelomnnea.com"
+    "Muhammad Nadhum: muhammad.n.hashim@alkafeelomnnea.com"
     "Huda Kareem: huda.k.rasool@alkafeelomnnea.com"
 )
 
@@ -478,7 +478,7 @@ send_metrics() {
     fi
 
     IS_DAILY_FLAG="false"
-    [ "$SKIP_INTERVAL_CHECK" = "true" ] && IS_DAILY_FLAG="true"
+    [ "$SKIP_INTERVAL_CHECK" = "true" ] && [ "$FORCE_SEND" != "true" ] && IS_DAILY_FLAG="true"
 
     PAYLOAD=$(cat <<EOF
 {
@@ -1238,6 +1238,8 @@ case "${1:-}" in
     --force)
         rm -f "$STATE_DIR"/disk_tier_* "$STATE_DIR/ram_alert" 2>/dev/null
         log "🔧 Forced: cleared state, sending now..."
+        SKIP_INTERVAL_CHECK="true"
+        FORCE_SEND="true"
         if acquire_run_lock; then
             trap 'release_run_lock' EXIT
             send_metrics

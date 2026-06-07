@@ -228,30 +228,23 @@ should_send_partition_alert() {
 _collect_partitions() {
     local _DF_FILTER='tmpfs|devtmpfs|udev|Filesystem|overlay|rootfs|shm|/dev/loop|/snap/'
 
-    # ── Helper: df-BM fallback (used when lsblk/python3 unavailable) ──
-    _cp_df_fallback() {
-        while IFS= read -r _line; do
-            local _dev _mp _sz _us _av _pt _ptype
-            _dev=$(echo "$_line" | awk '{print $1}')
-            _mp=$(echo "$_line"  | awk '{print $6}')
-            _sz=$(echo "$_line"  | awk '{gsub("M",""); printf "%.0f", $2*1048576}')
-            _us=$(echo "$_line"  | awk '{gsub("M",""); printf "%.0f", $3*1048576}')
-            _av=$(echo "$_line"  | awk '{gsub("M",""); printf "%.0f", $4*1048576}')
-            _pt=$(echo "$_line"  | awk '{print $5}' | tr -d '%')
-            [[ "$_pt" =~ ^[0-9]+$ ]] || continue
-            _ptype="DIRECT"; [ "$_mp" = "/" ] && _ptype="DIRECT_ROOT"
-            echo "$_dev|disk|$((_sz))|$((_av))|$((_us))|$_pt|$_mp|$_mp|$_ptype"
-        done < <(timeout 10 df -BM 2>/dev/null | grep -vE "$_DF_FILTER")
-    }
+    rm -f /tmp/vm_metrics_collect_error
+
+    if ! command -v lsblk &>/dev/null; then
+        echo "lsblk not found — install with: sudo apt-get install -y util-linux" > /tmp/vm_metrics_collect_error
+        return
+    fi
 
     if ! command -v python3 &>/dev/null; then
-        _cp_df_fallback; return
+        echo "python3 not found — install with: sudo apt-get install -y python3" > /tmp/vm_metrics_collect_error
+        return
     fi
 
     local _JSON
     _JSON=$(timeout 10 lsblk -b --json -o NAME,SIZE,FSAVAIL,FSUSED,TYPE,MOUNTPOINT 2>/dev/null)
     if [ -z "$_JSON" ]; then
-        _cp_df_fallback; return
+        echo "lsblk returned no output — disk data unavailable" > /tmp/vm_metrics_collect_error
+        return
     fi
 
     # ── Physical block devices via lsblk ──
@@ -305,10 +298,10 @@ for disk in data.get('blockdevices', []):
         elif pa > 0 or pu > 0:
             tf = pa + pu
             pct = pu * 100 // tf if tf > 0 else 0
-            lb = pm if pm else pn
+            lb = pn
             ptype = 'DIRECT_ROOT' if pm == '/' else 'DIRECT'
-            print(f'{pn}|{dn}|{tf}|{pa}|{pu}|{pct}|{lb}|{lb}|{ptype}')
-" 2>/dev/null || { _cp_df_fallback; return; }
+            print(f'{pn}|{dn}|{tf}|{pa}|{pu}|{pct}|{lb}|{pm}|{ptype}')
+" 2>/dev/null || { echo "lsblk JSON parse failed — disk data unavailable" > /tmp/vm_metrics_collect_error; return; }
 
     # ── Network mounts (NFS/CIFS) — lsblk never sees these ──
     while IFS= read -r _line; do
@@ -365,7 +358,6 @@ send_metrics() {
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue
         [[ "$_pt" =~ ^[0-9]+$ ]] || continue
-        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
         _tgb=$(awk "BEGIN {printf \"%.1f\", $_fst/1073741824}")
         _ugb=$(awk "BEGIN {printf \"%.1f\", $_us/1073741824}")
         _fgb=$(awk "BEGIN {printf \"%.1f\", $_av/1073741824}")
@@ -384,7 +376,6 @@ send_metrics() {
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue
         [[ "$_pt" =~ ^[0-9]+$ ]] || continue
-        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
 
         # State file key = partition name (sda1, sda4) or sanitised NFS mount
         _mount_key=$(echo "$_pn" | sed 's|^/||; s|/|_|g')
@@ -418,6 +409,15 @@ send_metrics() {
             [ "$_pt" -gt "$MAX_DISK_PCT" ] && MAX_DISK_PCT=$_pt
         fi
     done <<< "$_PARTS_DATA"
+
+    # If disk collection failed entirely, inject a critical error issue
+    if [ -f /tmp/vm_metrics_collect_error ]; then
+        _COLLECT_ERR=$(cat /tmp/vm_metrics_collect_error)
+        log "⚠️  Disk monitoring unavailable: $_COLLECT_ERR"
+        SEND_DISK="true"
+        DISK_ISSUES_JSON="{\"type\":\"DISK\",\"mount\":\"unknown\",\"message\":\"Disk monitoring unavailable — ${_COLLECT_ERR}\",\"severity\":\"critical\",\"tier\":\"system\",\"alert_interval_hours\":1}"
+        MAX_DISK_PCT=90
+    fi
 
     # --daily forces RAM send regardless of threshold or interval
     [ "$SKIP_INTERVAL_CHECK" = "true" ] && SEND_RAM="true"
@@ -662,7 +662,7 @@ install() {
         echo "  OS: $OS_NAME"
     fi
 
-    for cmd in curl free df awk ip sed; do
+    for cmd in curl free df awk ip sed lsblk python3; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             echo "  ⚠️  Missing: $cmd — install with: sudo apt-get install -y $cmd"
         fi
@@ -905,7 +905,6 @@ status() {
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue
         [[ "$_pt" =~ ^[0-9]+$ ]] || continue
-        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
         _intv=$(get_disk_tier_interval "$_pt")
         _tier=$(get_disk_tier_label "$_pt")
         if [ "$_intv" != "none" ]; then
@@ -924,6 +923,9 @@ status() {
         fi
         echo "      $_display_name  ${_pt}% | ${_ugb}GB used / ${_tgb}GB total / ${_fgb}GB free | $_tier_str"
     done < <(_collect_partitions)
+    if [ -f /tmp/vm_metrics_collect_error ]; then
+        echo "    ⚠️  Disk collection failed: $(cat /tmp/vm_metrics_collect_error)"
+    fi
     echo "    Uptime:   $(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60); printf "%dd %dh %dm",d,h,m}' /proc/uptime)"
     echo ""
     echo "  --- Last Alert Times ---"
@@ -962,6 +964,10 @@ simulate() {
 
     # ── Collect real partition data; find root partition for override ──
     _SIM_PARTS=$(_collect_partitions)
+    if [ -f /tmp/vm_metrics_collect_error ]; then
+        echo "⚠️  Disk collection failed: $(cat /tmp/vm_metrics_collect_error)"
+        log "⚠️  Disk collection failed: $(cat /tmp/vm_metrics_collect_error)"
+    fi
     _SIM_ROOT_PART=""; _SIM_ROOT_FST_B=0; _SIM_ROOT_AVAIL_B=0; _SIM_ROOT_USED_B=0
     _SIM_ROOT_WORST=""; _SIM_ROOT_PTY=""
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
@@ -1022,7 +1028,6 @@ simulate() {
     SIM_MOUNTS_JSON=""
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue; [[ "$_pt" =~ ^[0-9]+$ ]] || continue
-        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
         if [ "$_pn" = "$_SIM_ROOT_PART" ] && [[ "$_pty" == *ROOT* ]]; then
             _entry="{\"mount\":\"$_lb\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else
@@ -1099,6 +1104,10 @@ simulate_daily() {
 
     # ── Collect real partition data; find root partition for override ──
     _SIM_PARTS=$(_collect_partitions)
+    if [ -f /tmp/vm_metrics_collect_error ]; then
+        echo "⚠️  Disk collection failed: $(cat /tmp/vm_metrics_collect_error)"
+        log "⚠️  Disk collection failed: $(cat /tmp/vm_metrics_collect_error)"
+    fi
     _SIM_ROOT_PART=""; _SIM_ROOT_FST_B=0
     _SIM_ROOT_WORST=""; _SIM_ROOT_PTY=""
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
@@ -1148,7 +1157,6 @@ simulate_daily() {
     SIM_MOUNTS_JSON=""
     while IFS='|' read -r _pn _dk _fst _av _us _pt _lb _wm _pty; do
         [ -z "$_pn" ] && continue; [[ "$_pt" =~ ^[0-9]+$ ]] || continue
-        [ "$_fst" -le 1073741824 ] && continue   # skip partitions ≤ 1 GB
         if [ "$_pn" = "$_SIM_ROOT_PART" ] && [[ "$_pty" == *ROOT* ]]; then
             _entry="{\"mount\":\"$_lb\",\"total_gb\":${_SIM_ROOT_TOTAL},\"used_gb\":${_SIM_ROOT_USED},\"free_gb\":${_SIM_ROOT_FREE},\"usage_pct\":${DISK_PCT}}"
         else

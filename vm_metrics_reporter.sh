@@ -7,8 +7,8 @@
 #    >= 90% → every 1h   → Telegram
 #    >= 80% → every 6h   → Email
 #    >= 70% → every 12h  → Email
-#    >= 60% → every 24h  → Email
-#    <  60% → no alert
+#    >= 70% → every 12h → Email
+#    <  70% → no alert
 #
 #  RAM alert:
 #    > 80% (used/total) → every 24h → Email
@@ -54,9 +54,9 @@ CC_EMAILS=""          # comma-separated CC addresses
 # ================================================================
 #  DISK ALERT TIERS — "THRESHOLD:INTERVAL_HOURS"  (highest first)
 # ================================================================
-DISK_TIERS="90:1 80:6 70:12 60:24"
+DISK_TIERS="90:1 80:6 70:12"
 # ⬇ TEST TIER — remove after testing (alerts at >10% every minute, triggers email+telegram)
-#DISK_TIERS="90:1 80:6 70:12 60:24 10:0"
+#DISK_TIERS="90:1 80:6 70:12 10:0"
 
 # ================================================================
 #  RAM ALERT — simple single threshold
@@ -323,7 +323,16 @@ send_metrics() {
 
     TIMESTAMP=$(get_timestamp)
     RESOLVED_NAME="${VM_NAME:-$(hostname -f 2>/dev/null || hostname)}"
-    PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
+    # Detect primary IP via the interface that holds the default gateway route.
+    # This avoids picking VPN tunnel IPs or secondary NICs that may win
+    # the route-to-1.1.1.1 lookup when unusual routing is in place.
+    _GW_IFACE=$(ip route show default 2>/dev/null | awk '/^default/ {for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
+    if [ -n "$_GW_IFACE" ]; then
+        PRIMARY_IP=$(ip -4 addr show dev "$_GW_IFACE" 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]}' | head -1)
+    fi
+    # Fallback 1: route-get heuristic (less reliable with VPNs)
+    [ -z "$PRIMARY_IP" ] && PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
+    # Fallback 2: first IP from hostname -I
     [ -z "$PRIMARY_IP" ] && PRIMARY_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
     [ -z "$PRIMARY_IP" ] && PRIMARY_IP="unknown"
     ALL_IPS=$(hostname -I 2>/dev/null | tr ' ' ',' | sed 's/,$//')
@@ -391,7 +400,6 @@ send_metrics() {
             if   [ "$_pt" -ge 90 ]; then _sev="critical"
             elif [ "$_pt" -ge 80 ]; then _sev="warning"
             elif [ "$_pt" -ge 70 ]; then _sev="notice"
-            elif [ "$_pt" -ge 60 ]; then _sev="info"
             else                          _sev="ok"; fi
             _ival=$([ "$_interval" = "none" ] && echo 0 || { [ "$_interval" = "0" ] && echo 0 || echo "$_interval"; })
             _fgb=$(awk "BEGIN {printf \"%.1f\", $_av/1073741824}")
@@ -747,8 +755,7 @@ install() {
     echo "     Disk >= 90%  → every 1h   → Telegram"
     echo "     Disk >= 80%  → every 6h   → Email"
     echo "     Disk >= 70%  → every 12h  → Email"
-    echo "     Disk >= 60%  → every 24h  → Email"
-    echo "     Disk <  60%  → no alert"
+    echo "     Disk <  70%  → no alert"
     echo "     RAM  >  ${RAM_ALERT_THRESHOLD}%   → every ${RAM_ALERT_INTERVAL}h   → Email"
     echo "     Daily report → 7:59 AM    → always sends"
     echo ""
@@ -876,7 +883,11 @@ status() {
     echo ""
 
     RESOLVED_NAME="${VM_NAME:-$(hostname)}"
-    PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
+    _GW_IFACE=$(ip route show default 2>/dev/null | awk '/^default/ {for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
+    if [ -n "$_GW_IFACE" ]; then
+        PRIMARY_IP=$(ip -4 addr show dev "$_GW_IFACE" 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]}' | head -1)
+    fi
+    [ -z "$PRIMARY_IP" ] && PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
 
     R_TOTAL=$(free -m | awk '/^Mem:/ {print $2}')
     R_USED=$(free  -m | awk '/^Mem:/ {print $3}')
@@ -910,7 +921,7 @@ status() {
         if [ "$_intv" != "none" ]; then
             _tier_str="$_tier → every $([ "$_intv" = "0" ] && echo "1 min" || echo "${_intv}h")"
         else
-            _tier_str="✅ OK (< 60% — no alert)"
+            _tier_str="✅ OK (< 70% — no alert)"
         fi
         _tgb=$(awk "BEGIN {printf \"%.1f\", $_fst/1073741824}")
         _ugb=$(awk "BEGIN {printf \"%.1f\", $_us/1073741824}")
@@ -953,7 +964,11 @@ simulate() {
 
     TIMESTAMP=$(get_timestamp)
     RESOLVED_NAME="${VM_NAME:-$(hostname -f 2>/dev/null || hostname)}"
-    PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
+    _GW_IFACE=$(ip route show default 2>/dev/null | awk '/^default/ {for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
+    if [ -n "$_GW_IFACE" ]; then
+        PRIMARY_IP=$(ip -4 addr show dev "$_GW_IFACE" 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]}' | head -1)
+    fi
+    [ -z "$PRIMARY_IP" ] && PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
     [ -z "$PRIMARY_IP" ] && PRIMARY_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 
     DISK_INTERVAL=$(get_disk_tier_interval "$DISK_PCT")
@@ -995,7 +1010,6 @@ simulate() {
         if   [ "$DISK_PCT" -ge 90 ]; then D_SEV="critical"
         elif [ "$DISK_PCT" -ge 80 ]; then D_SEV="warning"
         elif [ "$DISK_PCT" -ge 70 ]; then D_SEV="notice"
-        elif [ "$DISK_PCT" -ge 60 ]; then D_SEV="info"
         else                               D_SEV="test"; fi
         SIM_INTERVAL_VAL=$([ "$DISK_INTERVAL" = "0" ] && echo 0 || echo "$DISK_INTERVAL")
         ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"${_SIM_ROOT_LABEL} at ${DISK_PCT}% — ${_SIM_ROOT_FREE}GB free of ${_SIM_ROOT_TOTAL}GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
@@ -1096,7 +1110,11 @@ simulate_daily() {
 
     TIMESTAMP=$(get_timestamp)
     RESOLVED_NAME="${VM_NAME:-$(hostname -f 2>/dev/null || hostname)}"
-    PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
+    _GW_IFACE=$(ip route show default 2>/dev/null | awk '/^default/ {for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
+    if [ -n "$_GW_IFACE" ]; then
+        PRIMARY_IP=$(ip -4 addr show dev "$_GW_IFACE" 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]}' | head -1)
+    fi
+    [ -z "$PRIMARY_IP" ] && PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
     [ -z "$PRIMARY_IP" ] && PRIMARY_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 
     DISK_INTERVAL=$(get_disk_tier_interval "$DISK_PCT")
@@ -1131,7 +1149,6 @@ simulate_daily() {
     if   [ "$DISK_PCT" -ge 90 ]; then D_SEV="critical"
     elif [ "$DISK_PCT" -ge 80 ]; then D_SEV="warning"
     elif [ "$DISK_PCT" -ge 70 ]; then D_SEV="notice"
-    elif [ "$DISK_PCT" -ge 60 ]; then D_SEV="info"
     else                               D_SEV="ok"; fi
     SIM_INTERVAL_VAL=$([ "$DISK_INTERVAL" = "none" ] && echo 0 || { [ "$DISK_INTERVAL" = "0" ] && echo 0 || echo "$DISK_INTERVAL"; })
     ISSUES_JSON="{\"type\":\"DISK\",\"message\":\"${_SIM_ROOT_LABEL} at ${DISK_PCT}% — ${_SIM_ROOT_FREE}GB free of ${_SIM_ROOT_TOTAL}GB\",\"severity\":\"$D_SEV\",\"tier\":\"$DISK_TIER\",\"alert_interval_hours\":$SIM_INTERVAL_VAL}"
@@ -1290,8 +1307,7 @@ case "${1:-}" in
         echo "    >= 90%  →  every 1h   → Telegram"
         echo "    >= 80%  →  every 6h   → Email"
         echo "    >= 70%  →  every 12h  → Email"
-        echo "    >= 60%  →  every 24h  → Email"
-        echo "    <  60%  →  no alert"
+        echo "    <  70%  →  no alert"
         echo ""
         echo "  RAM: > ${RAM_ALERT_THRESHOLD}% (used/total) → every ${RAM_ALERT_INTERVAL}h → Email"
         echo "  Daily: 7:59 AM every day → always sends full status (is_daily=true)"

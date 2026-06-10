@@ -7,11 +7,15 @@
 #    >= 90% -> every 1h   -> Telegram
 #    >= 80% -> every 6h   -> Email
 #    >= 70% -> every 12h  -> Email
-#    >= 60% -> every 24h  -> Email
-#    <  60% -> no alert
+#    >= 70% -> every 12h  -> Email
+#    <  70% -> no alert
 #
 #  RAM alert:
 #    > 80% (used/total) -> every 24h -> Email
+#
+#  DOWNLOAD:
+#    Manual: https://github.com/YOUR_ORG/vm-metrics-reporter
+#    Git:    git clone https://github.com/YOUR_ORG/vm-metrics-reporter
 #
 #  QUICK START (run as Administrator):
 #    PowerShell -ExecutionPolicy Bypass -File vm_metrics_reporter_windows.ps1 --install
@@ -22,24 +26,16 @@
 #  Format: "Full Name:email@domain.com"
 # ================================================================
 $USERS = @(
-    "Ammar Alessa:ammar.aleessa@alkafeelomnnea.com",
-    "Ahmed Al-Fadhul:ahmed.m.alfadhel@alkafeelomnnea.com",
-    "Ali Alaa:ali.a.abbas@alkafeelomnnea.com",
-    "Qasim:qasim.l.ghalib@alkafeelomnnea.com",
-    "Ali Yami:ali.m.mahdi@alkafeelomnnea.com",
-    "Abbas Mohammad:abbas.m.hamza@alkafeelomnnea.com",
-    "Abdullah Raheem:abdullah.r.farhan@alkafeelomnnea.com",
-    "mohammed albaqir:mohammed.albaqir.mahdi@alkafeelomnnea.com",
-    "Mohamad Ali:mohammed.a.rahim@alkafeelomnnea.com",
-    "Hussein Adnan:hussain.adnan.a@alkafeelomnnea.com",
-    "Muhammad Nadhum:muhammad.n.hashim@alkafeelomnnea.com",
-    "Huda Kareem:huda.k.rasool@alkafeelomnnea.com"
+    "John Smith:john.smith@company.com",
+    "Jane Doe:jane.doe@company.com",
+    "Bob Johnson:bob.johnson@company.com",
+    "Alice Williams:alice.williams@company.com"
 )
 
 # ================================================================
 #  CONFIGURATION -populated by --install wizard, do not edit manually
 # ================================================================
-$N8N_WEBHOOK_URL = "http://192.168.199.107:5678/webhook/508afee7-c80d-44b7-8bd2-6a9acecfb4ab"
+$N8N_WEBHOOK_URL = "http://YOUR_N8N_SERVER_IP:5678/webhook/YOUR-WEBHOOK-ID"
 $VM_NAME         = ""
 $LOCATION        = ""
 $NETWORK_VERSION = ""    # "old" | "new" | "Old & New Network"
@@ -50,7 +46,7 @@ $CC_EMAILS       = ""
 # ================================================================
 #  DISK ALERT TIERS -"THRESHOLD:INTERVAL_HOURS" (highest first)
 # ================================================================
-$DISK_TIERS = "90:1 80:6 70:12 60:24"
+$DISK_TIERS = "90:1 80:6 70:12"
 
 # ================================================================
 #  RAM ALERT -single threshold
@@ -335,7 +331,7 @@ function Send-Metrics {
         $interval = Get-DiskTierInterval $SimDiskPct
         if ($interval -ge 0) {
             $hasIssues = $true
-            $sev = if ($SimDiskPct -ge 90) { "critical" } elseif ($SimDiskPct -ge 80) { "warning" } elseif ($SimDiskPct -ge 70) { "notice" } else { "info" }
+            $sev = if ($SimDiskPct -ge 90) { "critical" } elseif ($SimDiskPct -ge 80) { "warning" } elseif ($SimDiskPct -ge 70) { "notice" } else { "ok" }
             $issuesList.Add([ordered]@{
                 type                 = "DISK"
                 message              = "Drive C: at ${SimDiskPct}% -$($simMount.free_gb)GB free of $($simMount.total_gb)GB"
@@ -367,7 +363,7 @@ function Send-Metrics {
 
             if (Should-SendDiskAlert -Pct $usePct -DriveLabel $vol.DriveLetter) {
                 $hasIssues = $true
-                $sev = if ($usePct -ge 90) { "critical" } elseif ($usePct -ge 80) { "warning" } elseif ($usePct -ge 70) { "notice" } else { "info" }
+                $sev = if ($usePct -ge 90) { "critical" } elseif ($usePct -ge 80) { "warning" } elseif ($usePct -ge 70) { "notice" } else { "ok" }
                 $issuesList.Add([ordered]@{
                     type                 = "DISK"
                     message              = "Drive ${dl} at ${usePct}% -${freeGB}GB free of ${totalGB}GB"
@@ -404,7 +400,7 @@ function Send-Metrics {
     if (-not $hasIssues -and -not $isDaily) { return }
 
     # ── Severity ─────────────────────────────────────────────────
-    $severityLabel = if ($maxPct -ge 90) { "🔴 CRITICAL" } elseif ($maxPct -ge 80) { "🟠 WARNING" } elseif ($maxPct -ge 70) { "🟡 NOTICE" } else { "🔵 INFO" }
+    $severityLabel = if ($maxPct -ge 90) { "🔴 CRITICAL" } elseif ($maxPct -ge 80) { "🟠 WARNING" } elseif ($maxPct -ge 70) { "🟡 NOTICE" } else { "🟡 NOTICE" }
 
     # ── Build payload ─────────────────────────────────────────────
     $payload = [ordered]@{
@@ -655,8 +651,8 @@ function Install-Script {
     Write-Host "     Disk >= 90%  -> every 1h   -> Telegram"
     Write-Host "     Disk >= 80%  -> every 6h   -> Email"
     Write-Host "     Disk >= 70%  -> every 12h  -> Email"
-    Write-Host "     Disk >= 60%  -> every 24h  -> Email"
-    Write-Host "     Disk <  60%  -> no alert"
+    Write-Host "     Disk >= 70%  -> every 12h  -> Email"
+    Write-Host "     Disk <  70%  -> no alert"
     Write-Host "     RAM  >  ${RAM_ALERT_THRESHOLD}%   -> every ${RAM_ALERT_INTERVAL}h   -> Email"
     Write-Host "     Daily report -> 7:59 AM    -> always sends"
     Write-Host ""
@@ -735,7 +731,7 @@ function Show-Status {
         $uGB     = [math]::Round(($vol.Size - $vol.SizeRemaining) / 1GB, 2)
         $pct     = if ($tGB -gt 0) { [math]::Floor(($uGB / $tGB) * 100) } else { 0 }
         $intv    = Get-DiskTierInterval $pct
-        $tierStr = if ($intv -ge 0) { "$(Get-DiskTierLabel $pct) -> every $(if ($intv -eq 0) { "1 min" } else { "${intv}h" })" } else { "OK (< 60% - no alert)" }
+        $tierStr = if ($intv -ge 0) { "$(Get-DiskTierLabel $pct) -> every $(if ($intv -eq 0) { "1 min" } else { "${intv}h" })" } else { "OK (< 70% - no alert)" }
         Write-Host "    $dl  ${pct}% used | ${uGB}GB used / ${tGB}GB total | $tierStr"
     }
     Write-Host ""
@@ -844,7 +840,6 @@ switch ($arg) {
         Write-Host "    --simulate [D] [R]         Test alert: D=disk%, R=ram% (defaults: 85 75)"
         Write-Host "                                 --simulate 92        (CRITICAL -> Telegram+Email)"
         Write-Host "                                 --simulate 85 85     (WARNING  -> Email)"
-        Write-Host "                                 --simulate 65 50     (INFO     -> Email)"
         Write-Host "                                 --simulate 5 50      (nothing sent)"
         Write-Host "    --simulate-daily [D] [R]   Test daily report (is_daily=true)"
         Write-Host "                                 --simulate-daily"
@@ -855,8 +850,7 @@ switch ($arg) {
         Write-Host "    >= 90%  ->  every 1h   -> Telegram"
         Write-Host "    >= 80%  ->  every 6h   -> Email"
         Write-Host "    >= 70%  ->  every 12h  -> Email"
-        Write-Host "    >= 60%  ->  every 24h  -> Email"
-        Write-Host "    <  60%  ->  no alert"
+        Write-Host "    <  70%  ->  no alert"
         Write-Host ""
         Write-Host "  RAM: > ${RAM_ALERT_THRESHOLD}% (used/total) -> every ${RAM_ALERT_INTERVAL}h -> Email"
         Write-Host "  Daily: 7:59 AM every day -> always sends full status"

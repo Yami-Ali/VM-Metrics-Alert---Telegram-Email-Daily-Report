@@ -31,13 +31,17 @@ USERS=(
     "Ali Alaa: ali.a.abbas@alkafeelomnnea.com"
     "Qasim: qasim.l.ghalib@alkafeelomnnea.com"
     "Ali Yami: ali.m.mahdi@alkafeelomnnea.com"
-    "Abbas Mohammad: abbas.m.hamza@alkafeelomnnea.com"
     "Abdullah Raheem: abdullah.r.farhan@alkafeelomnnea.com"
     "mohammed albaqir: mohammed.albaqir.mahdi@alkafeelomnnea.com"
     "Mohamad Ali: mohammed.a.rahim@alkafeelomnnea.com"
     "Hussein Adnan: hussain.adnan.a@alkafeelomnnea.com"
-    "Muhammad Nadhum: muhammad.n.hashim@alkafeelomnnea.com"
+    "Mohammad Nadhum: muhammad.n.hashim@alkafeelomnnea.com"
     "Huda Kareem: huda.k.rasool@alkafeelomnnea.com"
+    "Ghaith Jameel: ghaith.a.jameel@alkafeelomnnea.com"
+    "Hussain Habib: hussain.a.habib@alkafeelomnnea.com"
+    "Hasan Jalil: hasan.a.jalil@alkafeelomnnea.com"
+    "Haider Mahdi: haider.s.mahdi@alkafeelomnnea.com"
+    "Mohammed Malek: mohammed.m.razzaq@alkafeelomnnea.com"
 )
 
 # ================================================================

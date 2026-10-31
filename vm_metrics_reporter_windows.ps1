@@ -26,16 +26,29 @@
 #  Format: "Full Name:email@domain.com"
 # ================================================================
 $USERS = @(
-    "John Smith:john.smith@company.com",
-    "Jane Doe:jane.doe@company.com",
-    "Bob Johnson:bob.johnson@company.com",
-    "Alice Williams:alice.williams@company.com"
+    "Ammar Alessa: ammar.aleessa@alkafeelomnnea.com"
+    "Ahmed Al-Fadhul: ahmed.m.alfadhel@alkafeelomnnea.com"
+    "Ali Alaa: ali.a.abbas@alkafeelomnnea.com"
+    "Qasim: qasim.l.ghalib@alkafeelomnnea.com"
+    "Ali Yami: ali.m.mahdi@alkafeelomnnea.com"
+    "Abdullah Raheem: abdullah.r.farhan@alkafeelomnnea.com"
+    "mohammed albaqir: mohammed.albaqir.mahdi@alkafeelomnnea.com"
+    "Mohamad Ali: mohammed.a.rahim@alkafeelomnnea.com"
+    "Hussein Adnan: hussain.adnan.a@alkafeelomnnea.com"
+    "Mohammad Nadhum: muhammad.n.hashim@alkafeelomnnea.com"
+    "Huda Kareem: huda.k.rasool@alkafeelomnnea.com"
+    "Ghaith Jameel: ghaith.a.jameel@alkafeelomnnea.com"
+    "Hussain Habib: hussain.a.habib@alkafeelomnnea.com"
+    "Hasan Jalil: hasan.a.jalil@alkafeelomnnea.com"
+    "Haider Mahdi: haider.s.mahdi@alkafeelomnnea.com"
+    "Mohammed Malek: mohammed.m.razzaq@alkafeelomnnea.com"
+    "Mohammed Al-Hadi: mohammed.a.saleh@alkafeelomnnea.com"
 )
 
 # ================================================================
 #  CONFIGURATION -populated by --install wizard, do not edit manually
 # ================================================================
-$N8N_WEBHOOK_URL = "http://YOUR_N8N_SERVER_IP:5678/webhook/YOUR-WEBHOOK-ID"
+$N8N_WEBHOOK_URL = "http://192.168.199.107:5678/webhook/508afee7-c80d-44b7-8bd2-6a9acecfb4ab"
 $VM_NAME         = ""
 $LOCATION        = ""
 $NETWORK_VERSION = ""    # "old" | "new" | "Old & New Network"
@@ -573,7 +586,7 @@ function Install-Script {
     Write-Host "  OS: $([System.Environment]::OSVersion.VersionString)"
     Write-Host ""
 
-    if ($N8N_WEBHOOK_URL -eq "http://YOUR_SERVER_IP:5678/webhook/YOUR_WEBHOOK_ID") {
+    if ($N8N_WEBHOOK_URL -eq "http://192.168.199.107:5678/webhook/508afee7-c80d-44b7-8bd2-6a9acecfb4ab") {
         Write-Host "  WARNING: N8N_WEBHOOK_URL is still the default placeholder!"
         $confirm = Read-Host "  Continue anyway? (y/N)"
         if ($confirm -notmatch '^[Yy]$') { exit 1 }

@@ -42,6 +42,7 @@ USERS=(
     "Hasan Jalil: hasan.a.jalil@alkafeelomnnea.com"
     "Haider Mahdi: haider.s.mahdi@alkafeelomnnea.com"
     "Mohammed Malek: mohammed.m.razzaq@alkafeelomnnea.com"
+    "Mohammed Al-Hadi: mohammed.a.saleh@alkafeelomnnea.com"
 )
 
 # ================================================================

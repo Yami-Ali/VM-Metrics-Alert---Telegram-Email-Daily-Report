@@ -30,7 +30,7 @@ This command:
 > Requires: Windows 10 / 11 / Server 2016 / 2019 / 2022 — open **PowerShell as Administrator**
 
 ```powershell
-$p="$env:TEMP\vm_w.ps1"; $b=(Invoke-WebRequest "https://raw.githubusercontent.com/Yami-Ali/vm-metrics-windows/main/vm_metrics_reporter_windows.ps1" -UseBasicParsing).RawContentStream.ToArray(); if($b[0] -ne 0xEF){$b=[byte[]](0xEF,0xBB,0xBF)+$b}; [System.IO.File]::WriteAllBytes($p,$b); PowerShell -ExecutionPolicy Bypass -File $p --install
+$p="$env:TEMP\vm_w.ps1"; $b=(Invoke-WebRequest "https://raw.githubusercontent.com/Yami-Ali/VM-Metrics-Alert---Telegram-Email-Daily-Report/main/vm_metrics_reporter_windows.ps1" -UseBasicParsing).RawContentStream.ToArray(); if($b[0] -ne 0xEF){$b=[byte[]](0xEF,0xBB,0xBF)+$b}; [System.IO.File]::WriteAllBytes($p,$b); PowerShell -ExecutionPolicy Bypass -File $p --install
 ```
 
 This command:
@@ -280,7 +280,7 @@ PowerShell -ExecutionPolicy Bypass -File "C:\Program Files\vm-metrics\vm_metrics
 
 **Step 2 — Download and install latest:**
 ```powershell
-$p="$env:TEMP\vm_w.ps1"; $b=(Invoke-WebRequest "https://raw.githubusercontent.com/Yami-Ali/vm-metrics-windows/main/vm_metrics_reporter_windows.ps1" -UseBasicParsing).RawContentStream.ToArray(); if($b[0] -ne 0xEF){$b=[byte[]](0xEF,0xBB,0xBF)+$b}; [System.IO.File]::WriteAllBytes($p,$b); PowerShell -ExecutionPolicy Bypass -File $p --install
+$p="$env:TEMP\vm_w.ps1"; $b=(Invoke-WebRequest "https://raw.githubusercontent.com/Yami-Ali/VM-Metrics-Alert---Telegram-Email-Daily-Report/main/vm_metrics_reporter_windows.ps1" -UseBasicParsing).RawContentStream.ToArray(); if($b[0] -ne 0xEF){$b=[byte[]](0xEF,0xBB,0xBF)+$b}; [System.IO.File]::WriteAllBytes($p,$b); PowerShell -ExecutionPolicy Bypass -File $p --install
 ```
 
 ### Logs
